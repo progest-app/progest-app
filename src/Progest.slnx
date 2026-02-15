@@ -1,2 +1,4 @@
 <Solution>
+  <Project Path="Progest.Core.Tests/Progest.Core.Tests.csproj" />
+  <Project Path="Progest.Core/Progest.Core.csproj" />
 </Solution>
