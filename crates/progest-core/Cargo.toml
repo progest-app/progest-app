@@ -17,6 +17,8 @@ thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
 ignore.workspace = true
+uuid.workspace = true
+blake3.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true

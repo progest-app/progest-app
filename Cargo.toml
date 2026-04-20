@@ -37,6 +37,8 @@ tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 tempfile = "3"
+uuid = { version = "1", features = ["v7", "serde"] }
+blake3 = "1"
 
 [profile.release]
 lto = "thin"
