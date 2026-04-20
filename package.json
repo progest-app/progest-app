@@ -6,11 +6,17 @@
   "scripts": {
     "dev": "pnpm --filter @progest/app dev",
     "build": "pnpm --filter @progest/app build",
-    "typecheck": "pnpm --filter @progest/app typecheck"
+    "typecheck": "pnpm --filter @progest/app typecheck",
+    "tauri": "tauri -c crates/progest-tauri/tauri.conf.json",
+    "tauri:dev": "tauri dev -c crates/progest-tauri/tauri.conf.json",
+    "tauri:build": "tauri build -c crates/progest-tauri/tauri.conf.json"
   },
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22",
     "pnpm": ">=10"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1"
   }
 }

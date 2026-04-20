@@ -42,9 +42,14 @@ depends = ["install"]
 run = "pnpm --filter @progest/app dev"
 
 [tasks.tauri-dev]
-description = "Run the Tauri desktop app against the Vite dev server"
+description = "Run the Tauri desktop app (starts the Vite dev server first via tauri CLI)"
 depends = ["install"]
-run = "cargo run -p progest-tauri --bin progest-desktop"
+run = "pnpm tauri:dev"
+
+[tasks.tauri-build]
+description = "Build the Tauri desktop app bundle (release)"
+depends = ["install"]
+run = "pnpm tauri:build"
 
 [tasks.cli]
 description = "Run the progest CLI — pass arguments after --, e.g. `mise run cli -- scan`"
