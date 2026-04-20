@@ -148,6 +148,13 @@ impl IgnoreRules {
             Match::Ignore(_)
         )
     }
+
+    /// Underlying [`Gitignore`] matcher, exposed for callers that need to
+    /// integrate with the `ignore` crate directly (notably the scanner's
+    /// `filter_entry` closure).
+    pub(crate) fn matcher(&self) -> &Gitignore {
+        &self.matcher
+    }
 }
 
 #[cfg(test)]

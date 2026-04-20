@@ -13,7 +13,9 @@
 pub mod filesystem;
 pub mod ignore;
 pub mod path;
+pub mod scanner;
 
 pub use filesystem::{FileSystem, FsError, Metadata, StdFileSystem};
 pub use ignore::{DEFAULT_PATTERNS, IgnoreError, IgnoreRules, USER_IGNORE_PATH};
 pub use path::{ProjectPath, ProjectPathError};
+pub use scanner::{EntryKind, ScanEntry, ScanError, ScanIter, Scanner};
