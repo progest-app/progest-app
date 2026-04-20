@@ -74,6 +74,52 @@ See [docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md) for architectur
 
 ---
 
+## Development
+
+Progest uses [mise](https://mise.jdx.dev/) as the single source of truth for toolchains (Rust, Node, pnpm) and common workflow tasks. Installing mise is the only prerequisite for a new clone.
+
+```bash
+# One-time: install mise (macOS / Linux)
+curl https://mise.run | sh
+
+# From the repo root: mise auto-installs the pinned versions of rust, node, pnpm
+mise install
+
+# Install frontend deps (runs on-demand from other tasks too)
+mise run install
+```
+
+### Everyday commands
+
+| Command | What it does |
+| --- | --- |
+| `mise run check` | rustfmt `--check`, clippy `-D warnings`, `tsc --noEmit`. **Required to pass before every commit.** |
+| `mise run test` | `cargo test --workspace` |
+| `mise run build` | `cargo build --workspace` + `vite build` |
+| `mise run fmt` | `cargo fmt --all` |
+| `mise run dev` | Vite dev server only (frontend iteration, no desktop shell) |
+| `mise run tauri-dev` | Full desktop app in dev mode (starts Vite + Tauri window) |
+| `mise run tauri-build` | Release desktop bundle |
+| `mise run cli -- <args>` | Run the `progest` CLI (e.g. `mise run cli -- scan`) |
+
+Raw commands still work — `cargo test`, `pnpm --filter @progest/app dev`, `pnpm tauri:dev` — but `mise run` matches exactly what CI executes, so local passing means CI passes.
+
+### Project layout
+
+```
+.
+├── app/                     # Vite + React 19 + TS frontend (pnpm workspace member)
+├── crates/
+│   ├── progest-core/        # all domain logic
+│   ├── progest-cli/         # `progest` binary
+│   ├── progest-merge/       # git merge driver for .meta
+│   └── progest-tauri/       # Tauri v2 desktop shell (+ tauri.conf.json)
+├── docs/                    # requirements, implementation plan
+└── mise.toml                # pinned toolchains + workflow tasks
+```
+
+---
+
 ## Documentation
 
 - [docs/REQUIREMENTS.md](./docs/REQUIREMENTS.md) — Full requirements spec (Japanese)

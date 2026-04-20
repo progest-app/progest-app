@@ -74,6 +74,52 @@ Progest は既存ディレクトリにそのまま寄り添い、現場が既に
 
 ---
 
+## 開発セットアップ
+
+Progest は [mise](https://mise.jdx.dev/) を単一のソースオブトゥルースとしてツールチェーン（Rust / Node / pnpm）と開発タスクを管理する。クローン後の唯一の前提は mise インストール。
+
+```bash
+# 初回のみ: mise インストール（macOS / Linux）
+curl https://mise.run | sh
+
+# リポジトリルートで実行: mise.toml に固定されたバージョンを自動導入
+mise install
+
+# 依存インストール（他タスクからも必要時に呼び出される）
+mise run install
+```
+
+### よく使うコマンド
+
+| コマンド | 内容 |
+| --- | --- |
+| `mise run check` | rustfmt `--check` + clippy `-D warnings` + `tsc --noEmit`。**コミット前に必ず通す** |
+| `mise run test` | `cargo test --workspace` |
+| `mise run build` | `cargo build --workspace` + `vite build` |
+| `mise run fmt` | `cargo fmt --all` |
+| `mise run dev` | Vite 開発サーバーのみ起動（フロントのみで反復する時） |
+| `mise run tauri-dev` | デスクトップアプリを開発モードで起動（Vite + Tauri ウィンドウ） |
+| `mise run tauri-build` | リリース用デスクトップバンドル |
+| `mise run cli -- <args>` | `progest` CLI を実行（例: `mise run cli -- scan`） |
+
+`cargo test` や `pnpm --filter @progest/app dev` といった素のコマンドも動くが、`mise run` は CI と完全同一なので、ローカルが通れば CI も通る。
+
+### プロジェクト構成
+
+```
+.
+├── app/                     # Vite + React 19 + TS フロントエンド（pnpm workspace）
+├── crates/
+│   ├── progest-core/        # ドメインロジック本体
+│   ├── progest-cli/         # `progest` バイナリ
+│   ├── progest-merge/       # .meta 用 git merge driver
+│   └── progest-tauri/       # Tauri v2 デスクトップシェル（tauri.conf.json 同梱）
+├── docs/                    # 要件定義・実装計画
+└── mise.toml                # ツールチェーン固定 + タスク定義
+```
+
+---
+
 ## ドキュメント
 
 - [docs/REQUIREMENTS.md](./docs/REQUIREMENTS.md) — 要件定義書
