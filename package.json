@@ -1,0 +1,16 @@
+{
+  "name": "progest-app-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Progest monorepo root (pnpm workspace). Rust crates live under crates/, frontend lives under app/.",
+  "scripts": {
+    "dev": "pnpm --filter @progest/app dev",
+    "build": "pnpm --filter @progest/app build",
+    "typecheck": "pnpm --filter @progest/app typecheck"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  }
+}

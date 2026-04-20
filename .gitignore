@@ -13,6 +13,11 @@ app/dist
 app/.vite
 crates/progest-tauri/gen
 
+# TypeScript incremental / project-ref artifacts
+*.tsbuildinfo
+app/vite.config.js
+app/vite.config.d.ts
+
 # Tauri
 /src-tauri/target
 /src-tauri/gen/schemas
