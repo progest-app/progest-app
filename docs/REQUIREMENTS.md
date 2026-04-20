@@ -38,15 +38,16 @@ Progest は、既存のクリエイティブ案件ディレクトリに後付け
 | サイドカーメタ | `file.ext.meta`（TOML、セクション分離） |
 | ファイル ID | UUID（複製時は新規発行 + `source_file_id` 記録）、blake3 fingerprint |
 | 命名規則エンジン | テンプレートDSL + 制約DSL、継承、4モード、rule_id トレース、rename preview、一括適用、ロールバック |
+| 配置規則 (accepts) | ディレクトリごとの受入拡張子、カテゴリエイリアス、import 先サジェスト、`placement` lint |
 | 連番 | ディレクトリローカル + 名前空間指定 |
 | AI命名支援 | BYOK（OpenAI/Anthropic互換、簡易実装）、OS keychain保存 |
 | FS監視 | startup scan + OS watch + periodic reconcile（三段構え） |
 | 検索 | SQLite + FTS5 + trigram/N-gram、GitHub風 key:value DSL |
 | ビュー | ツリー、フラット、保存済みビュー（.progest/views.toml） |
 | コマンドパレット | GUI |
-| CLI | init/scan/lint/rename/tag/search/doctor/meta merge |
+| CLI | init/scan/lint/rename/tag/search/import/doctor/meta merge |
 | サムネ | 画像（image crate）、動画（ffmpeg）、PSD埋込（psd crate） |
-| 外部連携 | D&D 双方向、外部アプリで開く |
+| 外部連携 | D&D 双方向（accepts ベースのインポート先サジェスト付き）、外部アプリで開く |
 | テンプレート | 単一TOML 書出・読込（ローカルファイルのみ） |
 | i18n | UI 日英両対応（i18next / react-i18next） |
 | ライセンス | Apache License 2.0 |
@@ -108,7 +109,7 @@ project-root/
 
 配置:
 - ファイル: Unity 式隣接型。`foo.psd` の隣に `foo.psd.meta`
-- ディレクトリ: ディレクトリ直下に `.dirmeta.toml`（各ディレクトリ 1つ、スキーマは `.meta` と共通）
+- ディレクトリ: ディレクトリ直下に `.dirmeta.toml`（各ディレクトリ 1つ、`.meta` スキーマに加えて §3.13 の `[accepts]` セクションを許容）
 
 フォーマット: TOML。セクション分離で衝突頻度を下げる。
 
@@ -263,7 +264,7 @@ DSL: GitHub / Linear 風 key:value + 自由テキスト。
 予約キー:
 - `tag:<name>`, `-tag:<name>`
 - `type:<ext>` / `kind:asset|directory|derived`
-- `is:violation|orphan|duplicate`
+- `is:violation|orphan|duplicate|misplaced`
 - `name:<glob>`, `path:<glob>`
 - `scene:<int>` `shot:<int>` `status:<enum>` (カスタムフィールド)
 - `created:<iso>..<iso>`, `updated:<iso>..<iso>`
@@ -301,6 +302,7 @@ progest tag add <tag> <files...>
 progest tag remove <tag> <files...>
 progest tag list <files...>
 progest search <query> [--format json|text]
+progest import <files...> [--dest <path>] [--auto] [--move] [--dry-run] [--format json|text]
 progest export-template --include structure,rules,schema,views --out <path>
 progest meta merge <ours> <theirs> <base> --output <path>   # git merge driver
 ```
@@ -338,6 +340,9 @@ ffmpeg 配布:
 ### 3.11 外部連携（v1）
 
 - Finder/Explorer → Progest の D&D 受入（ファイル取り込み、meta 生成、規則適用）
+  - flat view に落とされた場合は §3.13 の配置規則に従ってインポート先をサジェスト
+  - tree view に落とされた場合は落下先 dir の accepts と突合し、mismatch 時は確認ダイアログ
+  - 複数ファイルは各ファイルの最上位 typed match へ自動振り分け、一覧確認モーダルで確定
 - Progest → 外部アプリ起動（OSデフォルト、拡張子別指定）
 - Progest → 外部への D&D 出（ファイルパス渡し）
 
@@ -347,11 +352,107 @@ ffmpeg 配布:
 - 書出時に含める内容を選択可（構造は必須）:
   - ディレクトリ構造（空ディレクトリ階層、必須）
   - 命名規則（rules.toml）
-  - カスタムスキーマ（schema.toml）
+  - カスタムスキーマ（schema.toml、alias 含む）
   - 保存済みビュー（views.toml）
+  - `.dirmeta.toml`（accepts を含むディレクトリメタ）
 - `progest init --template <path>` で適用
 - テンプレート内にメタデータ（id, version, author, description）記録
 - v1 はローカルパスのみ、git URL は v1.1
+
+### 3.13 配置規則（accepts）
+
+ディレクトリごとに「受け入れる拡張子」を宣言し、import 時のインポート先サジェストと既存ファイルの配置違反 lint を実現する。命名規則（§3.4）とは独立したカテゴリとして扱う。
+
+#### 3.13.1 基本モデル
+
+- 配置: `.dirmeta.toml` の `[accepts]` セクション
+- 未設定: 当該ディレクトリは全拡張子を受け入れる（制約なし）
+- 記述形式: 拡張子文字列 + カテゴリエイリアス混在可
+
+スキーマ例:
+```toml
+[accepts]
+inherit = false              # デフォルト。true で親 dir の accepts と union
+exts = [".psd", ".tif", ":image", ""]   # "" は拡張子なしファイル（README 等）
+```
+
+- 拡張子: 先頭ドット必須、大小文字非感知で比較（TOML には小文字で記録推奨）
+- 複合拡張子（`.tar.gz`, `.blend1`）は文字列末尾の最長一致で評価
+- カテゴリエイリアス: `:image` `:video` 等。定義は `.progest/schema.toml` の `[alias.<name>]` で拡張可能（後述）
+
+#### 3.13.2 継承（opt-in）
+
+命名規則と異なり、デフォルトは非継承。子で `inherit = true` を明示した時のみ、祖先の accepts を再帰的に union する。
+
+```
+effective_accepts(dir) = own_accepts(dir) ∪ (inherit ? effective_accepts(parent) : ∅)
+```
+
+祖先自身の inherit フラグは effective 計算に影響しない（あくまで子の宣言でその鎖を辿るかを決める）。
+
+#### 3.13.3 カテゴリエイリアス
+
+組み込みエイリアス（v1 で必ず提供）:
+- `:image`, `:video`, `:audio`, `:raw`, `:3d`, `:project`, `:text`
+- 正確な構成拡張子は実装時に確定し、`docs/` 配下のリファレンスに明示する
+
+プロジェクト定義エイリアスは `.progest/schema.toml` に記述:
+```toml
+[alias.studio_3d]
+exts = [".fbx", ".usd", ".usda", ".usdc", ".abc"]
+```
+
+- ネスト（alias 内で alias 参照）は v1 ではサポートしない
+- 同名のプロジェクト定義は組み込みを上書きする（診断ログに警告）
+
+#### 3.13.4 インポート先サジェスト
+
+対象ファイルの拡張子（または `""`）と各 dir の effective_accepts を突合し、候補をランキングして提示する。
+
+順位付けルール（上位優先）:
+1. 明示一致: dir 自身の own_accepts に当該拡張子が含まれる
+2. 継承一致: effective_accepts に含まれるが own_accepts には無い
+3. MRU: 最近インポート先に選ばれた dir
+4. パス深さ: 浅いほど優先
+
+UI 構成:
+- 上部: typed match（1〜4 のルールで並ぶ）
+- 折りたたみ: "Other locations"（accepts 未設定 dir、typed match ゼロ時のフォールバックも兼ねる）
+
+#### 3.13.5 発動導線
+
+| 起点 | 挙動 |
+| --- | --- |
+| flat view D&D | typed match が 1 件なら自動配置 + toast（undo 可）、複数なら一覧モーダル |
+| tree view D&D | 落下先の accepts に合致しない場合、確認ダイアログ（推奨候補を併記） |
+| CLI `progest import` | stdin が tty なら対話選択。非 tty 時は `--dest` または `--auto` 必須、どちらも無ければエラー。`--auto` は typed match 1 位を自動選択（2 件以上ある時はエラー）、`--dry-run` で移動せずプレビュー |
+| 複数ファイルの一括 D&D / `progest import <files...>` | 各ファイルを最上位 typed match に自動振り分け、一覧確認モーダルで変更可、Apply で確定 |
+
+import 操作の実体:
+- デフォルトはコピー（元ファイルを残す）
+- `--move` または D&D 時の明示モディファイアで移動に切り替え
+- 失敗時はロールバック（原子トランザクション）
+
+naming rule との連鎖:
+- 配置先 dir に naming rule がある場合、rename preview を同一ダイアログに一体化して提示
+- Apply で「配置 + 名前付け」を単一の history エントリとして記録、undo 可
+
+#### 3.13.6 lint（placement カテゴリ）
+
+accepts に違反する既存ファイルを検出する。命名違反とは別カテゴリ `placement` として扱う。
+
+- 検出対象: ファイルの直接親 dir の effective_accepts に当該拡張子が含まれないもの
+- モード: naming と同じ 4 モード（`strict` / `warn`（default）/ `hint` / `off`）を `.dirmeta.toml` の `[accepts]` 内で指定可
+- 違反レポート必須フィールド: `file_id`, `path`, `category = "placement"`, `expected_exts[]`, `winning_rule_source`（own か inherited か）, `suggested_destinations[]`（ランキング上位 N 件）
+- 検索クエリ: `is:misplaced`
+- UI: 違反バッジを naming と別色で表示
+
+#### 3.13.7 編集 UX
+
+- ツリーで dir を選択 → インスペクターパネルに `accepts` 編集フォーム
+- `exts`: chip input。`:image` 等のエイリアスはオートコンプリート
+- `inherit`: チェックボックス
+- 変更は `.dirmeta.toml` の原子書込（§3.2 と同等）で反映
 
 ---
 

@@ -79,6 +79,7 @@ progest-core のモジュール:
 - `core::meta` — .meta I/O、原子書込、pending queue
 - `core::identity` — UUID 発行、fingerprint、複製検出
 - `core::rules` — 規則 DSL パーサ、評価、違反検出、継承解決
+- `core::accepts` — `.dirmeta.toml` の `[accepts]` パース、エイリアス解決、effective 計算、placement 違反検出、インポート先ランキング
 - `core::index` — SQLite+FTS5 schema、upsert、query
 - `core::search` — DSL パーサ、クエリプラン、実行
 - `core::watch` — notify ラッパー、三段構え制御
@@ -87,6 +88,7 @@ progest-core のモジュール:
 - `core::template` — テンプレート入出力
 - `core::ai` — BYOK クライアント、keychain 連携
 - `core::rename` — preview、apply、undo history
+- `core::import` — インポート実体（copy/move）、原子トランザクション、accepts と rename preview の一体適用
 - `core::doctor` — 整合性診断
 
 ---
@@ -148,9 +150,17 @@ project-root/
 ├── .gitignore               # init 時自動生成 / 追記
 ├── .gitattributes           # init 時自動生成 / 追記
 └── assets/
-    ├── .dirmeta.toml        # ディレクトリ自体のメタ
+    ├── .dirmeta.toml        # ディレクトリ自体のメタ + [accepts] セクション
     ├── foo.psd
     └── foo.psd.meta
+```
+
+`.dirmeta.toml` の `[accepts]` 抜粋:
+```toml
+[accepts]
+inherit = false             # true で親の accepts を union
+exts = [".psd", ".tif", ":image"]
+mode = "warn"               # strict | warn (default) | hint | off
 ```
 
 SQLite schema（主要テーブル）:
@@ -200,12 +210,15 @@ CREATE VIRTUAL TABLE fts_files USING fts5(
 CREATE TABLE violations (
   file_id TEXT NOT NULL,
   rule_id TEXT NOT NULL,
+  category TEXT NOT NULL,     -- naming | placement
   reason TEXT,
   severity TEXT,
-  suggested_names TEXT,       -- JSON
+  suggested_names TEXT,       -- JSON (naming)
+  suggested_destinations TEXT,-- JSON (placement)
   detected_at TEXT,
   PRIMARY KEY (file_id, rule_id)
 );
+CREATE INDEX idx_violations_category ON violations(category);
 
 CREATE TABLE history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,43 +267,51 @@ CREATE INDEX idx_history_applied_at ON history(applied_at);
 
 完了条件: `progest init && progest scan` で 1万ファイル程度の fixture が 5秒以内にインデックス化、孤児 .meta を doctor が検出。
 
-### M2 — 命名規則エンジン（1ヶ月）
-**目的**: ルールで lint と rename ができる。
+### M2 — 命名規則エンジン + 配置規則（1ヶ月）
+**目的**: ルールで lint と rename ができる。配置違反（placement）も同じ lint パイプラインで扱える。
 
 - `core::rules` — DSL パーサ、2層規則、継承解決、勝利 rule_id トレース
 - テンプレート構文（`{prefix}_{seq:03d}` 等）
 - 制約規則（charset、casing、forbidden_chars 等）
 - 違反検出、修正提案生成
-- `core::history` — 操作ログ（rename / tag / meta_edit）、inverse 生成、undo/redo
+- `core::accepts` — `.dirmeta.toml` の `[accepts]` パース、`schema.toml` のエイリアス解決、effective 計算（opt-in 継承）、placement 違反検出、インポート先ランキング算出
+- 組み込みエイリアス（`:image`, `:video`, `:audio`, `:raw`, `:3d`, `:project`, `:text`）の構成拡張子を確定し `docs/` に記載
+- `core::history` — 操作ログ（rename / tag / meta_edit / import）、inverse 生成、undo/redo
 - `core::rename` — preview、apply（原子トランザクション）、history 連携
-- CLI: `lint`, `rename --preview|--apply`, `undo`, `redo`
-- ゴールデンテスト（規則評価結果を YAML に固定）
+- CLI: `lint`（placement カテゴリ統合）, `rename --preview|--apply`, `undo`, `redo`
+- ゴールデンテスト（naming / placement 評価結果を YAML に固定）
 
-完了条件: fixture プロジェクトに対して lint が期待通り違反検出、rename preview と apply が動く、undo で戻せる。
+完了条件: fixture プロジェクトに対して lint が naming / placement 両方の違反を期待通り検出、rename preview と apply が動く、undo で戻せる。
 
 ### M3 — 検索とビュー（1ヶ月）
-**目的**: クエリ駆動でファイルを操作できる UI。
+**目的**: クエリ駆動でファイルを操作できる UI。配置違反の可視化とディレクトリ単位の accepts 編集 UI も同時に提供する。
 
 - `core::search` — DSL パーサ（key:value + 自由テキスト + ブール）、クエリプラン
 - FTS5 + trigram の設定、日本語検索の基本動作
 - コマンドパレット UI（shadcn Command + Dialog）
 - ツリービュー、フラットビュー、保存済みビュー
+- ディレクトリインスペクターパネル（accepts 編集フォーム: chip input + inherit チェックボックス + mode セレクタ）
+- flat view / ツリー上の placement 違反バッジ（naming とは別色）
+- `is:misplaced` クエリサポート
 - views.toml の I/O
 - CLI: `search`, `tag add|remove|list`
 - カスタムフィールドのクエリ対応
 
-完了条件: UI で `tag:foo type:psd is:violation` 相当が 100ms 以下で返る、保存済みビューが永続化される。
+完了条件: UI で `tag:foo type:psd is:violation` / `is:misplaced` 相当が 100ms 以下で返る、保存済みビューが永続化される、ディレクトリインスペクターで accepts を編集して `.dirmeta.toml` に反映される。
 
 ### M4 — サムネ + 外部連携 + AI + テンプレート（1ヶ月）
-**目的**: 価値提案を完成させる。
+**目的**: 価値提案を完成させる。accepts を踏まえた D&D import / CLI import もここで完結する。
 
 - `core::thumbnail` — 生成キュー、LRU キャッシュ
   - 画像（image crate）→ 動画（ffmpeg 子プロセス）→ PSD（psd crate）の順で実装
-- 外部連携: D&D 受入、外部アプリで開く、D&D 出
-- `core::template` — 書出・読込、`progest init --template <path>`
+- `core::import` — インポート実体（copy / move）、原子トランザクション、accepts ランキング + rename preview の一体適用、history への単一エントリ記録
+- 外部連携: D&D 受入（flat view は accepts サジェスト、tree view は mismatch 確認ダイアログ）、外部アプリで開く、D&D 出
+- 複数ファイルの一括 import UI（一覧確認モーダル）
+- CLI: `progest import <files...> [--dest|--auto|--move|--dry-run|--format json|text]`（対話 / 非対話両対応、tty 検出）
+- `core::template` — 書出・読込、`progest init --template <path>`、テンプレートに `.dirmeta.toml`（accepts）を含める
 - `core::ai` — BYOK クライアント、keychain 連携、簡易 UI
 
-完了条件: 画像・動画・PSD のサムネが出る、D&D でファイル追加できる、テンプレートから空プロジェクトが作れる、AI 提案が動く。
+完了条件: 画像・動画・PSD のサムネが出る、D&D でファイル追加（accepts サジェストが動く）、CLI `progest import` が対話・非対話両方で動く、テンプレートから空プロジェクトが作れる（accepts 含む）、AI 提案が動く。
 
 ### M5 — 仕上げ・リリース（0.5ヶ月 + 予備1ヶ月）
 **目的**: 公開可能な品質に整える。
