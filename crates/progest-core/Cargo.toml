@@ -16,9 +16,11 @@ path = "src/lib.rs"
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
+ignore.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
