@@ -39,6 +39,12 @@ jobs:
         with:
           workspaces: ". -> target"
 
+      # jdx/mise-action caches ~/.local/share/mise but not ~/.rustup, so on
+      # cache hits mise skips the rustup install and never re-adds components.
+      # Make rustfmt/clippy idempotent here regardless of cache state.
+      - name: Ensure rust components
+        run: rustup component add rustfmt clippy
+
       - name: Run mise check
         run: mise run check
 
