@@ -8,8 +8,11 @@ pnpm = "10.33"
 # local development stay in sync.
 
 [tasks.install]
-description = "Install pnpm dependencies"
-run = "pnpm install"
+description = "Install pnpm dependencies and git hooks"
+run = [
+  "pnpm install",
+  "pnpm exec lefthook install",
+]
 
 [tasks.build]
 description = "Build the Rust workspace and the frontend"

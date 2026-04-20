@@ -1,0 +1,38 @@
+# Lefthook configuration.
+# https://github.com/evilmartians/lefthook
+#
+# Install the hooks once after cloning:
+#
+#   mise run install           # pulls pnpm deps + runs `lefthook install`
+#
+# Bypass in an emergency with `git commit --no-verify`. Discouraged —
+# CI runs the same checks, so bypassing just postpones the failure.
+
+# Run at commit time. Kept cheap on purpose (fmt + DCO only) so normal
+# commits stay instant. Expensive checks (clippy, tsc, test) live on
+# pre-push and in CI.
+pre-commit:
+  parallel: true
+  commands:
+    rustfmt:
+      glob: "*.rs"
+      run: cargo fmt --all -- --check
+      fail_text: "Rust sources are not formatted. Run `mise run fmt` and re-stage."
+
+commit-msg:
+  commands:
+    dco:
+      # Commit message file path is passed as {1}.
+      run: 'grep -qE "^Signed-off-by: " {1}'
+      fail_text: "Missing 'Signed-off-by:' trailer. Use `git commit -s` to add it automatically (DCO)."
+
+# Heavy checks before pushing. This is where we mirror `mise run check`
+# and the test suite, so a green push is the same guarantee as green CI.
+pre-push:
+  commands:
+    check:
+      run: mise run check
+      fail_text: "`mise run check` failed. Fix the issues and re-push."
+    test:
+      run: mise run test
+      fail_text: "`mise run test` failed. Fix the failing tests and re-push."
