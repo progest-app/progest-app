@@ -12,5 +12,7 @@
 //! preserves the existing `FileId`.
 
 pub mod file_id;
+pub mod fingerprint;
 
 pub use file_id::{FileId, FileIdError};
+pub use fingerprint::{Fingerprint, FingerprintError, compute_fingerprint};
