@@ -1,5 +1,7 @@
 [tools]
-rust = "1.95"
+# rust-toolchain.toml is ignored by mise, so rustfmt/clippy must be listed here
+# explicitly. Keep in sync with rust-toolchain.toml.
+rust = { version = "1.95", components = "rustfmt,clippy", profile = "minimal" }
 node = "22"
 pnpm = "10.33"
 
