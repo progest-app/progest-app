@@ -4,12 +4,14 @@
 //! IPC layers are thin wrappers over this library. See the project
 //! `docs/IMPLEMENTATION_PLAN.md` for the full module layout.
 //!
-//! Subsequent milestones will populate `meta`, `identity`, `rules`, `index`,
-//! `search`, `watch`, `reconcile`, `thumbnail`, `template`, `ai`, `history`,
-//! `rename`, and `doctor` modules alongside the existing [`fs`] module.
+//! Subsequent milestones will populate `rules`, `index`, `search`, `watch`,
+//! `reconcile`, `thumbnail`, `template`, `ai`, `history`, `rename`, and
+//! `doctor` modules alongside the existing [`fs`], [`identity`], and [`meta`]
+//! modules.
 
 pub mod fs;
 pub mod identity;
+pub mod meta;
 
 /// The crate version, synced with the workspace.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
