@@ -5,14 +5,15 @@
 //! `docs/IMPLEMENTATION_PLAN.md` for the full module layout.
 //!
 //! Subsequent milestones will populate `rules`, `search`, `watch`,
-//! `reconcile`, `thumbnail`, `template`, `ai`, `history`, `rename`, and
-//! `doctor` modules alongside the existing [`fs`], [`identity`], [`meta`],
-//! and [`index`] modules.
+//! `thumbnail`, `template`, `ai`, `history`, `rename`, and `doctor` modules
+//! alongside the existing [`fs`], [`identity`], [`meta`], [`index`], and
+//! [`reconcile`] modules.
 
 pub mod fs;
 pub mod identity;
 pub mod index;
 pub mod meta;
+pub mod reconcile;
 
 /// The crate version, synced with the workspace.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
