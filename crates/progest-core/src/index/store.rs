@@ -46,6 +46,20 @@ pub trait Index: Send + Sync {
 
     /// Snapshot every row, ordered by path for stable diff-friendly output.
     fn list_files(&self) -> Result<Vec<FileRow>, IndexError>;
+
+    /// Associate `tag` with `file_id`. A (file, tag) pair that already
+    /// exists is left untouched so reconcile can reapply the full tag set
+    /// without tracking a delta.
+    fn tag_add(&self, file_id: &FileId, tag: &str) -> Result<(), IndexError>;
+
+    /// Detach `tag` from `file_id`. Missing pairs are treated as a no-op —
+    /// a lagging reconcile must not error just because another actor
+    /// removed the tag first.
+    fn tag_remove(&self, file_id: &FileId, tag: &str) -> Result<(), IndexError>;
+
+    /// Tags associated with `file_id`, sorted lexicographically for stable
+    /// diffs and cache keys.
+    fn list_tags_for_file(&self, file_id: &FileId) -> Result<Vec<String>, IndexError>;
 }
 
 /// `SQLite`-backed [`Index`] implementation.
@@ -180,6 +194,39 @@ impl Index for SqliteIndex {
             let mut out = Vec::new();
             for row in rows {
                 out.push(row??);
+            }
+            Ok(out)
+        })
+    }
+
+    fn tag_add(&self, file_id: &FileId, tag: &str) -> Result<(), IndexError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO tags (file_id, tag) VALUES (?1, ?2)",
+                params![file_id.to_string(), tag],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn tag_remove(&self, file_id: &FileId, tag: &str) -> Result<(), IndexError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM tags WHERE file_id = ?1 AND tag = ?2",
+                params![file_id.to_string(), tag],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn list_tags_for_file(&self, file_id: &FileId) -> Result<Vec<String>, IndexError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare("SELECT tag FROM tags WHERE file_id = ?1 ORDER BY tag")?;
+            let rows =
+                stmt.query_map(params![file_id.to_string()], |row| row.get::<_, String>(0))?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
             }
             Ok(out)
         })
@@ -401,6 +448,76 @@ mod tests {
             paths,
             vec!["assets/hero.psd", "notes.md", "shots/s020/c001.mov"]
         );
+    }
+
+    #[test]
+    fn tag_add_then_list_returns_sorted_tags() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+        for tag in ["forest", "approved", "night"] {
+            idx.tag_add(&row.file_id, tag).unwrap();
+        }
+        let tags = idx.list_tags_for_file(&row.file_id).unwrap();
+        assert_eq!(tags, vec!["approved", "forest", "night"]);
+    }
+
+    #[test]
+    fn tag_add_is_idempotent() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+        idx.tag_add(&row.file_id, "forest").unwrap();
+        idx.tag_add(&row.file_id, "forest").unwrap();
+        let tags = idx.list_tags_for_file(&row.file_id).unwrap();
+        assert_eq!(tags, vec!["forest"]);
+    }
+
+    #[test]
+    fn tag_remove_existing_drops_the_pair() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+        idx.tag_add(&row.file_id, "forest").unwrap();
+        idx.tag_add(&row.file_id, "night").unwrap();
+        idx.tag_remove(&row.file_id, "forest").unwrap();
+        let tags = idx.list_tags_for_file(&row.file_id).unwrap();
+        assert_eq!(tags, vec!["night"]);
+    }
+
+    #[test]
+    fn tag_remove_missing_pair_is_a_noop() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+        // Neither the file nor the tag is tagged — reconcile should not trip.
+        idx.tag_remove(&row.file_id, "forest").unwrap();
+        idx.tag_remove(&FileId::new_v7(), "forest").unwrap();
+    }
+
+    #[test]
+    fn tag_add_rejects_unknown_file_id() {
+        // Foreign key enforcement depends on the `foreign_keys` pragma, which
+        // `SqliteIndex::open_in_memory` enables. This test doubles as a
+        // regression guard: if the pragma is dropped the insert will silently
+        // succeed and break the cascade invariant in later modules.
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let err = idx.tag_add(&FileId::new_v7(), "forest").unwrap_err();
+        assert!(matches!(err, IndexError::Sqlite(_)));
+    }
+
+    #[test]
+    fn deleting_a_file_cascades_its_tags() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+        idx.tag_add(&row.file_id, "forest").unwrap();
+        idx.tag_add(&row.file_id, "night").unwrap();
+
+        idx.delete_file(&row.file_id).unwrap();
+
+        let tags = idx.list_tags_for_file(&row.file_id).unwrap();
+        assert!(tags.is_empty());
     }
 
     #[test]
