@@ -21,6 +21,8 @@ ignore.workspace = true
 uuid.workspace = true
 blake3.workspace = true
 rusqlite.workspace = true
+notify.workspace = true
+notify-debouncer-full.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true

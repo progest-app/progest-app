@@ -40,6 +40,8 @@ tempfile = "3"
 uuid = { version = "1", features = ["v7", "serde"] }
 blake3 = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "8"
+notify-debouncer-full = "0.6"
 
 [profile.release]
 lto = "thin"
