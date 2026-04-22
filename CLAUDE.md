@@ -418,6 +418,7 @@ M1 進捗:
 作業前に必ず目を通す:
 - [docs/REQUIREMENTS.md](./docs/REQUIREMENTS.md) — 要件定義書（日本語）
 - [docs/IMPLEMENTATION_PLAN.md](./docs/IMPLEMENTATION_PLAN.md) — 実装計画・マイルストーン・スキーマ
+- [docs/M2_HANDOFF.md](./docs/M2_HANDOFF.md) — **M2 進行中の引き継ぎメモ**（次に触るモジュール順、focus areas、kickoff 質問テンプレ）
 - [docs/_DRAFT.md](./docs/_DRAFT.md) — 初期ドラフト（歴史参考）
 
 ユーザー向け:
