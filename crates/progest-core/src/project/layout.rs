@@ -104,15 +104,21 @@ fn ensure_gitignore(root: &Path) -> std::io::Result<()> {
         String::new()
     };
 
+    // Normalize trailing slashes when comparing: `.progest/thumbs` and
+    // `.progest/thumbs/` select the same set of files under gitignore
+    // semantics, and treating them as distinct entries would duplicate
+    // lines every time `progest init` re-runs against a project that
+    // already has the un-slashed form.
     let have: std::collections::HashSet<&str> = existing
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|l| l.trim_end_matches('/'))
         .collect();
 
     let missing: Vec<&&str> = GITIGNORE_ENTRIES
         .iter()
-        .filter(|e| !have.contains(*e))
+        .filter(|e| !have.contains(e.trim_end_matches('/')))
         .collect();
     if missing.is_empty() {
         return Ok(());
@@ -195,6 +201,29 @@ mod tests {
         assert!(gitignore.contains(".progest/local/"));
         // User entry preserved.
         assert!(gitignore.contains("*.log"));
+    }
+
+    #[test]
+    fn initialize_treats_slash_variants_as_the_same_entry() {
+        // The shipped patterns use trailing slashes, but a project that was
+        // initialized by an older version of progest (or had its .gitignore
+        // edited by hand) may use the un-slashed form. Appending again
+        // would produce noisy duplicate lines.
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("demo");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            project.join(".gitignore"),
+            ".progest/index.db\n.progest/thumbs\n.progest/local\n",
+        )
+        .unwrap();
+
+        initialize(&project, "Demo").unwrap();
+
+        let gitignore = fs::read_to_string(project.join(".gitignore")).unwrap();
+        assert_eq!(gitignore.matches(".progest/thumbs").count(), 1);
+        assert_eq!(gitignore.matches(".progest/local").count(), 1);
+        assert_eq!(gitignore.matches(".progest/index.db").count(), 1);
     }
 
     #[test]
