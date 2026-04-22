@@ -86,7 +86,26 @@ kickoff 時に必ず AskUserQuestion で個別に詰める。
 
 ---
 
-## 5. M2 着手時の最初の kickoff 質問テンプレ
+## 5. 次セッション housekeeping — CLAUDE.md の分割
+
+`core::rules` に入る前に、CLAUDE.md（約 420 行）をスリムにしておきたい。合意済みの方針:
+
+- **CLAUDE.md に残す（薄い Claude 用マニュアル）**: プロジェクト概要 / 不明点の扱い / 重要な設計原則（要約） / 避けるべきこと / 作業パターン / 参照すべきドキュメント
+- **切り出し先**:
+  - `docs/ARCHITECTURE.md` ← モノレポ構成 / モジュール役割 / プラットフォーム優先度
+  - `docs/CODING_STYLE.md` ← Rust / TypeScript / コミット・PR 規約
+  - `docs/WORKFLOW.md` ← mise / `mise run check` 必須ルール / よく使うコマンド
+  - `docs/LESSONS.md` ← 学び・はまりどころ（一番肥大、モジュール別に再構成推奨）
+- **進捗トラッカーは `IMPLEMENTATION_PLAN.md` に寄せる**。`STATUS.md` は作らない
+- ブランチ名: `docs/claude-md-restructure`
+- 各切り出しを 1 コミットずつ、最後に CLAUDE.md を薄くする 1 コミット
+- 切り出し時にリンク切れが出やすいので、grep で `CLAUDE.md#<アンカー>` と `学び・はまりどころ` 等の固有フレーズを確認してから push
+
+このハウスクリーニングが終わってから `core::rules` の kickoff に入る。
+
+---
+
+## 6. M2 着手時の最初の kickoff 質問テンプレ
 
 次に `core::rules` を始める時、kickoff でこれを聞く想定:
 
@@ -99,6 +118,7 @@ kickoff 時に必ず AskUserQuestion で個別に詰める。
 
 ---
 
-## 6. 履歴
+## 7. 履歴
 
 - 2026-04-22: 初版作成（M1 完了 / M2 opener landed のタイミング）
+- 2026-04-22: §5 に CLAUDE.md 分割の次セッション housekeeping を追加
