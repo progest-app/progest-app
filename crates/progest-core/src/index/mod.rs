@@ -10,10 +10,17 @@
 //! The module is split into:
 //!
 //! - [`migration`] — schema versioning and the embedded migration runner.
+//! - [`row`] — typed row domain values exchanged at the [`Index`] boundary.
+//! - [`store`] — the [`Index`] trait and [`SqliteIndex`] implementation.
 //!
-//! Subsequent commits add the [`Index`] trait, [`SqliteIndex`] implementation,
-//! and tag operations on top of this foundation.
+//! Tag operations land in a follow-up commit on top of this foundation.
 
+pub mod error;
 pub mod migration;
+pub mod row;
+pub mod store;
 
+pub use error::IndexError;
 pub use migration::{MIGRATIONS, Migration, MigrationError, apply, current_version};
+pub use row::FileRow;
+pub use store::{Index, SqliteIndex};
