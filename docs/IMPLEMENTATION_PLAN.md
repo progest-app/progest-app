@@ -4,7 +4,28 @@
 対象バージョン: v1.0 MVP（macOS 先行）
 想定期間: 6ヶ月（M0〜M5、予備1ヶ月含む）
 
-[REQUIREMENTS.md](./REQUIREMENTS.md) と対で読むこと。
+[REQUIREMENTS.md](./REQUIREMENTS.md) と対で読むこと。進行中フェーズの詳細な引き継ぎメモは [`M2_HANDOFF.md`](./M2_HANDOFF.md)。
+
+---
+
+## 0. 進捗スナップショット
+
+最終更新: 2026-04-22
+
+- **M0 Skeleton**: 完了
+- **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
+- **M2 Naming rules engine + accepts**: 進行中
+  - [x] `core::meta` 残タスク（pending queue / `.dirmeta.toml` loader）
+  - [ ] `core::rules` — DSL パーサ → eval → template（次着手）
+  - [ ] `core::accepts` / `core::history` / `core::rename`
+  - [ ] CLI `lint` / `rename` / `undo` / `redo`
+- **M3 以降**: 未着手
+
+後続 PR に切り出した既完了モジュールの残タスク:
+- `core::index`: FTS5 virtual table（M3 search）/ `custom_fields` テーブル（M2 rules と同時可）
+- `core::reconcile`: periodic timer driver（Tauri ランタイム層）/ `last_seen_at` / `created_at` の埋込（doctor が drift 判定に使う時）
+
+M2 以降のモジュール別完了条件は §5 のマイルストーンを参照。
 
 ---
 
