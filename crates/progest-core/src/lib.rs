@@ -4,13 +4,14 @@
 //! IPC layers are thin wrappers over this library. See the project
 //! `docs/IMPLEMENTATION_PLAN.md` for the full module layout.
 //!
-//! Subsequent milestones will populate `rules`, `index`, `search`, `watch`,
+//! Subsequent milestones will populate `rules`, `search`, `watch`,
 //! `reconcile`, `thumbnail`, `template`, `ai`, `history`, `rename`, and
-//! `doctor` modules alongside the existing [`fs`], [`identity`], and [`meta`]
-//! modules.
+//! `doctor` modules alongside the existing [`fs`], [`identity`], [`meta`],
+//! and [`index`] modules.
 
 pub mod fs;
 pub mod identity;
+pub mod index;
 pub mod meta;
 
 /// The crate version, synced with the workspace.
