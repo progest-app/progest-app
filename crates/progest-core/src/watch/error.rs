@@ -8,6 +8,8 @@
 
 use thiserror::Error;
 
+use crate::fs::IgnoreError;
+
 /// Errors raised while starting or configuring a [`super::Watcher`].
 #[derive(Debug, Error)]
 pub enum WatchError {
@@ -16,4 +18,9 @@ pub enum WatchError {
     /// a permission issue against the project root.
     #[error("failed to start OS watcher: {0}")]
     Backend(#[from] notify::Error),
+
+    /// Failed to load the project's `.progest/ignore` rules when preparing
+    /// the watcher's event filter.
+    #[error("failed to load ignore rules: {0}")]
+    Ignore(#[from] IgnoreError),
 }

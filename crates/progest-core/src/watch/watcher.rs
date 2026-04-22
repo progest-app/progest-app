@@ -28,7 +28,7 @@ use notify::{EventKind, RecursiveMode, event::ModifyKind, event::RenameMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
 use tracing::warn;
 
-use crate::fs::{IgnoreRules, ProjectPath};
+use crate::fs::{IgnoreRules, ProjectPath, StdFileSystem};
 use crate::reconcile::{ChangeSet, FsEvent};
 
 use super::error::WatchError;
@@ -43,43 +43,48 @@ pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Handle to a running [`notify`] watcher and its translation worker.
 ///
-/// Dropping the value tears both down: the debouncer's internal backend is
-/// stopped first, which closes the raw event channel, which causes the
-/// worker thread to exit its loop cleanly.
+/// Dropping the value tears both down. The manual [`Drop`] impl is careful
+/// to drop the debouncer **before** joining the worker — the worker is
+/// blocked on a `recv` that only unblocks when the debouncer's sender is
+/// dropped, so the naive "join then drop" order deadlocks.
 pub struct Watcher {
-    // Field order matters: dropping the debouncer closes the raw channel,
-    // which lets the worker exit; joining the worker afterwards is safe.
-    _debouncer: Debouncer<notify::RecommendedWatcher, RecommendedCache>,
+    debouncer: Option<Debouncer<notify::RecommendedWatcher, RecommendedCache>>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl Watcher {
     /// Start watching `root` recursively, returning the handle and a receiver
     /// of filtered [`ChangeSet`]s. Uses [`DEFAULT_DEBOUNCE`].
-    pub fn start(
-        root: PathBuf,
-        ignore: &IgnoreRules,
-    ) -> Result<(Self, Receiver<ChangeSet>), WatchError> {
-        Self::start_with_debounce(root, ignore, DEFAULT_DEBOUNCE)
+    ///
+    /// The watcher canonicalizes `root` internally (important on macOS, where
+    /// `TempDir` returns a `/var/folders` path whose canonical form lives
+    /// under `/private/var/folders` and `FSEvents` reports events using the
+    /// canonical path) and loads [`IgnoreRules`] against the canonical root
+    /// so the matcher and incoming event paths share the same prefix.
+    pub fn start(root: PathBuf) -> Result<(Self, Receiver<ChangeSet>), WatchError> {
+        Self::start_with_debounce(root, DEFAULT_DEBOUNCE)
     }
 
     /// Start watching `root` with a custom debounce window.
     pub fn start_with_debounce(
         root: PathBuf,
-        ignore: &IgnoreRules,
         debounce: Duration,
     ) -> Result<(Self, Receiver<ChangeSet>), WatchError> {
+        let root = std::fs::canonicalize(&root).unwrap_or(root);
+        let fs = StdFileSystem::new(root.clone());
+        let ignore = IgnoreRules::load(&fs).map_err(WatchError::Ignore)?;
+        let matcher = ignore.matcher().clone();
+
         let (raw_tx, raw_rx) = channel::<DebounceEventResult>();
         let mut debouncer = new_debouncer(debounce, None, raw_tx)?;
         debouncer.watch(&root, RecursiveMode::Recursive)?;
 
         let (out_tx, out_rx) = channel::<ChangeSet>();
-        let matcher = ignore.matcher().clone();
         let worker = thread::spawn(move || run_worker(&raw_rx, &out_tx, &root, &matcher));
 
         Ok((
             Self {
-                _debouncer: debouncer,
+                debouncer: Some(debouncer),
                 worker: Some(worker),
             },
             out_rx,
@@ -89,9 +94,11 @@ impl Watcher {
 
 impl Drop for Watcher {
     fn drop(&mut self) {
-        // The debouncer field is dropped first by the implicit drop order;
-        // this merely waits for the worker to observe the closed channel
-        // and exit. Failing to join would leak the thread.
+        // Drop the debouncer FIRST: it owns the sender side of the raw
+        // event channel, and only once that sender is gone will the worker
+        // wake from its blocking `recv` and exit. Joining before this point
+        // deadlocks the current thread against the worker.
+        self.debouncer.take();
         if let Some(handle) = self.worker.take() {
             let _ = handle.join();
         }
@@ -215,7 +222,6 @@ fn to_project_path(path: &Path, root: &Path, matcher: &Gitignore) -> Option<Proj
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs::StdFileSystem;
     use tempfile::TempDir;
 
     fn prep() -> (TempDir, Gitignore) {
