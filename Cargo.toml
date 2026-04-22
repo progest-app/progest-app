@@ -42,6 +42,7 @@ blake3 = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 notify = "8"
 notify-debouncer-full = "0.6"
+criterion = "0.5"
 
 [profile.release]
 lto = "thin"

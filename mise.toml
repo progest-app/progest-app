@@ -41,6 +41,10 @@ run = "cargo fmt --all"
 description = "Run all Rust tests"
 run = "cargo test --workspace"
 
+[tasks.bench]
+description = "Run Rust benchmarks (e.g. the M1 10k-file scan gate)"
+run = "cargo bench --workspace"
+
 [tasks.dev]
 description = "Start the frontend dev server (Vite on :1420)"
 depends = ["install"]
