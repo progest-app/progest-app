@@ -14,10 +14,14 @@
 //! intentionally out of scope for this first slice and land as follow-up PRs.
 
 pub mod document;
+pub mod pending;
 pub mod store;
 
 pub use document::{
     CoreSection, Kind, MetaDocument, MetaError, NamingSection, NotesSection, SCHEMA_VERSION,
     Status, TagsSection,
+};
+pub use pending::{
+    FlushReport, PENDING_DIR, PendingEntry, PendingError, PendingQueue, envelope_filename,
 };
 pub use store::{MetaStore, MetaStoreError, SIDECAR_SUFFIX, StdMetaStore, sidecar_path};

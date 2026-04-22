@@ -16,6 +16,7 @@ use thiserror::Error;
 use crate::fs::{FileSystem, FsError, ProjectPath, ProjectPathError};
 
 use super::document::{MetaDocument, MetaError};
+use super::pending::{PendingError, PendingQueue};
 
 /// File-extension suffix identifying sidecar metadata files.
 pub const SIDECAR_SUFFIX: &str = ".meta";
@@ -31,6 +32,8 @@ pub enum MetaStoreError {
     InvalidUtf8(String),
     #[error(transparent)]
     Path(#[from] ProjectPathError),
+    #[error(transparent)]
+    Pending(#[from] PendingError),
 }
 
 /// Compute the sidecar `.meta` path for a tracked file.
@@ -75,6 +78,16 @@ pub trait MetaStore: Send + Sync {
 /// `MetaStore` backed by a [`FileSystem`] — the real implementation used in
 /// production. Generic over the filesystem so that tests can swap in
 /// `MemFileSystem`.
+///
+/// `StdMetaStore` keeps a [`PendingQueue`] hooked up to the same filesystem
+/// and runs a best-effort `flush_pending` before every operation. That way
+/// a transient write failure (EPERM during a checkout, an editor holding
+/// the file open) never loses the `.meta` content — the next successful
+/// `MetaStore` call drains the backlog transparently.
+///
+/// Errors from the flush itself are swallowed: they're almost always the
+/// same kind of transient failure that put the entry in the queue, and the
+/// caller's main operation should still be attempted.
 #[derive(Debug, Clone)]
 pub struct StdMetaStore<F: FileSystem> {
     fs: F,
@@ -91,10 +104,32 @@ impl<F: FileSystem> StdMetaStore<F> {
     pub fn filesystem(&self) -> &F {
         &self.fs
     }
+
+    /// Drain the pending-write queue now. Prefer the automatic flush that
+    /// runs on every operation; this is here so startup sequences and
+    /// `progest doctor` can poll without issuing a no-op save.
+    pub fn flush_pending(&self) -> Result<(), MetaStoreError> {
+        self.run_flush();
+        Ok(())
+    }
+
+    /// Best-effort flush; failures are intentionally swallowed so they
+    /// cannot mask the caller's main operation.
+    fn run_flush(&self) {
+        let queue = PendingQueue::new(&self.fs);
+        let fs = &self.fs;
+        let _ = queue.flush(|target, body| fs.write_atomic(target, body.as_bytes()));
+    }
+
+    fn enqueue_failed_save(&self, sidecar: &ProjectPath, text: String, error: &FsError) {
+        let queue = PendingQueue::new(&self.fs);
+        let _ = queue.enqueue(sidecar, text, Some(error.to_string()));
+    }
 }
 
 impl<F: FileSystem> MetaStore for StdMetaStore<F> {
     fn load(&self, sidecar: &ProjectPath) -> Result<MetaDocument, MetaStoreError> {
+        self.run_flush();
         let bytes = self.fs.read(sidecar)?;
         let text = String::from_utf8(bytes)
             .map_err(|_| MetaStoreError::InvalidUtf8(sidecar.to_string()))?;
@@ -102,9 +137,15 @@ impl<F: FileSystem> MetaStore for StdMetaStore<F> {
     }
 
     fn save(&self, sidecar: &ProjectPath, doc: &MetaDocument) -> Result<(), MetaStoreError> {
+        self.run_flush();
         let text = doc.to_toml_string()?;
-        self.fs.write_atomic(sidecar, text.as_bytes())?;
-        Ok(())
+        match self.fs.write_atomic(sidecar, text.as_bytes()) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.enqueue_failed_save(sidecar, text, &e);
+                Err(MetaStoreError::Fs(e))
+            }
+        }
     }
 
     fn exists(&self, sidecar: &ProjectPath) -> bool {
@@ -112,6 +153,7 @@ impl<F: FileSystem> MetaStore for StdMetaStore<F> {
     }
 
     fn delete(&self, sidecar: &ProjectPath) -> Result<(), MetaStoreError> {
+        self.run_flush();
         self.fs.remove_file(sidecar)?;
         Ok(())
     }
