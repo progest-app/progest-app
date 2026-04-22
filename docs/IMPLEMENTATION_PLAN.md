@@ -267,6 +267,8 @@ CREATE INDEX idx_history_applied_at ON history(applied_at);
 
 完了条件: `progest init && progest scan` で 1万ファイル程度の fixture が 5秒以内にインデックス化、孤児 .meta を doctor が検出。
 
+> 補足（2026-04-22 合意）: `core::reconcile` は scan 時に **未登録ファイルへ `.meta` を自動生成** する方針。ただし上記「5秒以内」は **SQLite index 書込みまで** の計測値を指し、`.meta` 原子書込み（温度差で初回スキャンは長くなる）は budget に含めない。2 回目以降の scan は size+mtime cheap compare で `.meta` 書込みが発生しないため、5s 要件は incremental scan で担保する。
+
 ### M2 — 命名規則エンジン + 配置規則（1ヶ月）
 **目的**: ルールで lint と rename ができる。配置違反（placement）も同じ lint パイプラインで扱える。
 
