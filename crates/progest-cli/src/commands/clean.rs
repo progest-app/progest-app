@@ -70,6 +70,10 @@ impl CaseFlag {
 pub enum FillFlag {
     Skip,
     Placeholder,
+    /// Interactive: prompt the user (via stdin/stderr) for each hole.
+    /// Wired in by `progest rename`; `progest clean` still treats this
+    /// as `skip` because clean is preview-only.
+    Prompt,
 }
 
 // --- Entry point -----------------------------------------------------------
@@ -134,10 +138,14 @@ fn load_cfg(root: &ProjectRoot, args: &CleanArgs) -> Result<CleanupConfig> {
 
 fn build_fill_mode(args: &CleanArgs) -> FillMode {
     match args.fill_mode {
-        FillFlag::Skip => FillMode::Skip,
         FillFlag::Placeholder => {
             FillMode::Placeholder(args.placeholder.clone().unwrap_or_else(|| "_".to_string()))
         }
+        // `clean` is preview-only and runs unattended — treat
+        // `--fill-mode prompt` the same as `skip` so unresolved
+        // candidates surface as "skipped" instead of blocking on
+        // stdin. Use `progest rename` for interactive resolution.
+        FillFlag::Skip | FillFlag::Prompt => FillMode::Skip,
     }
 }
 

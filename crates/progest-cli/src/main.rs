@@ -13,6 +13,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use commands::clean::{CaseFlag, CleanArgs, FillFlag, FormatFlag};
+use commands::rename::{RenameArgs, RenameMode};
 
 mod commands;
 mod prompter;
@@ -44,6 +45,36 @@ enum Command {
         /// Restrict the walk to these paths (project-root relative or absolute).
         #[arg(value_name = "PATH")]
         paths: Vec<PathBuf>,
+        /// Output format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: FormatFlag,
+        /// Override `[cleanup].convert_case`.
+        #[arg(long, value_enum)]
+        case: Option<CaseFlag>,
+        /// Force `remove_cjk` on regardless of config.
+        #[arg(long)]
+        strip_cjk: bool,
+        /// Force `remove_copy_suffix` on regardless of config.
+        #[arg(long)]
+        strip_suffix: bool,
+        /// How to resolve CJK holes when rendering the final name.
+        #[arg(long, default_value = "skip", value_enum)]
+        fill_mode: FillFlag,
+        /// Placeholder string substituted for each hole under `--fill-mode=placeholder`.
+        #[arg(long)]
+        placeholder: Option<String>,
+    },
+    /// Preview or apply renames against the project (M2).
+    Rename {
+        /// Restrict the walk to these paths (project-root relative or absolute).
+        #[arg(value_name = "PATH")]
+        paths: Vec<PathBuf>,
+        /// Read a `RenameOp[]` JSON array from stdin instead of walking paths.
+        #[arg(long)]
+        from_stdin: bool,
+        /// Preview only (default) or commit the rename to disk.
+        #[arg(long, default_value = "preview", value_enum)]
+        mode: RenameMode,
         /// Output format.
         #[arg(long, default_value = "text", value_enum)]
         format: FormatFlag,
@@ -110,6 +141,37 @@ fn main() -> Result<ExitCode> {
                 },
             )?;
             Ok(ExitCode::SUCCESS)
+        }
+        Command::Rename {
+            paths,
+            from_stdin,
+            mode,
+            format,
+            case,
+            strip_cjk,
+            strip_suffix,
+            fill_mode,
+            placeholder,
+        } => {
+            let code = commands::rename::run(
+                &cwd,
+                &RenameArgs {
+                    paths,
+                    format,
+                    mode,
+                    from_stdin,
+                    case,
+                    strip_cjk,
+                    strip_suffix,
+                    fill_mode,
+                    placeholder,
+                },
+            )?;
+            Ok(if code == 0 {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(u8::try_from(code).unwrap_or(1))
+            })
         }
         Command::Search { query: _ } => todo!("M3: DSL parser + FTS5 query"),
     }
