@@ -3038,6 +3038,7 @@ dependencies = [
  "blake3",
  "criterion",
  "globset",
+ "heck 0.5.0",
  "ignore",
  "notify",
  "notify-debouncer-full",

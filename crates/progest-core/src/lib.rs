@@ -14,6 +14,7 @@ pub mod fs;
 pub mod identity;
 pub mod index;
 pub mod meta;
+pub mod naming;
 pub mod project;
 pub mod reconcile;
 pub mod rules;
