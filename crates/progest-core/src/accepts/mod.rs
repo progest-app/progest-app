@@ -23,10 +23,12 @@
 //! out of scope.
 
 pub mod loader;
+pub mod resolve;
 pub mod schema;
 pub mod types;
 
 pub use loader::{AcceptsExtraction, AcceptsLoadError, AcceptsWarning, extract_accepts};
+pub use resolve::{EffectiveAccepts, ResolveError, compute_effective_accepts, expand_own_accepts};
 pub use schema::{
     AliasCatalog, SchemaLoad, SchemaLoadError, SchemaWarning, load_alias_catalog,
     load_alias_catalog_from_table,
