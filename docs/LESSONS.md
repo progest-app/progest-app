@@ -426,3 +426,53 @@
 - `limit as i64` / `RETENTION_LIMIT as u32` 系は clippy `cast_possible_wrap` / `cast_possible_truncation` で弾かれる
 - これまでのテストで学んだ pattern: `i64::try_from(limit).unwrap_or(i64::MAX)` — 実運用で usize::MAX を入れることは無いので unwrap_or で十分、それ以外も同じ手口
 - 場所: `crates/progest-core/src/history/store.rs::Store::list`
+
+## 15. core::rename + core::sequence（atomic apply / sequence detection）
+
+### 直接 rename ではダメ — chain `foo→bar→baz` は staging 経由必須
+- 「from→to を順に rename」だと `foo→bar` の時点で既存の `bar` を上書きしてしまう（または `bar` の `foo→` で `bar` が消える）。preview の chain detection が「target が他の op の from にある」を許容しているのは、apply が staging 経由で全 from を中立地に退避してから to に展開するから
+- staging dir: `.progest/local/staging/<batch_uuid>/<idx>.f` (file) / `.<idx>.m` (sidecar)。各バッチが独自 dir を持つので並行 apply でも衝突しない
+- rollback は逆順: Phase 2 失敗 → in-flight op の commit を逆 → 既 commit を staging に戻す → 全 staging を from に戻す
+- 場所: `crates/progest-core/src/rename/apply.rs::Rename::commit_all`, `rollback_phase1`, `rollback_phase2`
+
+### `.meta` sidecar も file と一緒に move する。両方 atomic
+- ファイル単独で動かして sidecar が orphan になる事故が一番まずい。`from.meta` が存在すれば必ずペアで stage → commit → rollback
+- `MetaStore::rename` のような API は作らず `fs::rename` 直接でいい — `.meta` も普通のファイルなので、rename には `MetaStore` の load/save 規約は要らない
+- ペアの一致は property test で担保: 「apply 失敗時、file と sidecar は両方 from に、両方 to にあってはならない」を 5-op × 20 fault placements で検証
+- 場所: `crates/progest-core/src/rename/apply.rs::stage_all`, tests `fs_is_all_or_nothing_under_random_rename_fault`
+
+### index update は post-commit best-effort、FS は rollback しない
+- `Index::upsert_file` 失敗時に FS rollback すると「キャッシュが古い」を理由にユーザーの実体ファイル変更を巻き戻すことになる。それは誤り
+- 失敗は `IndexWarning` に積んで返す。reconcile が次回 scan で修復するのが正しいレイヤリング
+- 同じ contract が `HistoryWarning` にも適用される: history append 失敗で FS を巻き戻すのは過剰
+- 場所: `crates/progest-core/src/rename/apply.rs::Rename::apply` doc comment / `update_index`
+
+### `FaultyFileSystem` は inner FS の **前** で fault を投げる
+- maybe_fail を inner.rename の前にチェックすることで、fault が投げられた op は inner FS に触れない → 「operation never started」セマンティクス。テスト assertion で「fault 後の inner state は事前と同じ」が確実に成立
+- 「inner.rename を実行してから fault を投げる」も実装可能だが、partial-apply のシミュレーション目的でない限り過剰。今回は前者だけ提供
+- proptest との組み合わせで「N-op batch の任意の rename call に fault を一発入れる → FS は all-or-nothing」を網羅的にチェックできる
+- 場所: `crates/progest-core/src/fs/fault.rs::FaultyFileSystem::maybe_fail`
+
+### bulk rename の group_id: caller per-op > auto-batch
+- `Rename::apply` は `preview.ops.len() >= 2` で auto-batch group_id を生成するが、各 op が既に `group_id` を持つ（`core::sequence::requests_from_sequence` がセット済み）場合は per-op を優先
+- `outcome.group_id` も「全 op が同じ caller-supplied group を持つ」なら caller group を返す。そうでなければ auto group。これで sequence rename の呼び出し側が「自分の渡した seq-... id」をそのまま使える
+- 場所: `crates/progest-core/src/rename/apply.rs::Rename::apply` / `unified_caller_group`
+
+### sequence detection の正規表現 `^(.*?)([._-]?)(\d+)\.([^.]+)$`
+- `.*?` (lazy) で最短マッチ、`[._-]?` で separator は **末尾連続数字の直前 1 文字のみ**（`shot_v01` なら sep="" stem="shot_v"）
+- padding mismatch (`frame_001` vs `frame_1`) は別グループ。VFX で部分的に renumber されたバッチが「混在」として可視化されるのが意図
+- gap は許容（`frame_001`, `frame_002`, `frame_005` は 1 sequence）。retake で抜け番が出るのが普通だから
+- compound extension (`.exr.gz` 等) は v1 スコープ外
+- 場所: `crates/progest-core/src/sequence/detect.rs::PATTERN`
+
+### `HolePrompter` trait は core、impl は CLI
+- core が trait 定義のみ持って interactive I/O を抽象化。CLI 側 `StdinHolePrompter` が `Read + Send` / `Write + Send` で generic、テストは canned input/output で driven
+- prompts は **stderr** に出す。stdout は JSON pipe を維持したいので絶対に汚さない
+- 空行 → `PromptError::Invalid`、EOF → `PromptError::Cancelled`（cancellation を意図的に区別）
+- 場所: `crates/progest-core/src/naming/fill.rs::HolePrompter`, `crates/progest-cli/src/prompter.rs`
+
+### `clean --apply` は Identity + Unresolved op を **filter で落とす**
+- `progest clean` は project 全体を walk するので 99% のファイルは Identity (resolved == original)。これを `is_clean()` に通すと "1 op carries conflicts" で apply が refuse される
+- 解決: `from == to` の op は apply 前に filter で除外（Identity / Unresolved fallback to from の両方をカバー）。残ったものだけ cleanness check に掛ける
+- preview report は filter 前のものを emit するので、ユーザーは何が起きるか/起きないかを両方見られる
+- 場所: `crates/progest-cli/src/commands/clean.rs::commit`

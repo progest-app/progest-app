@@ -21,9 +21,11 @@
 //!   expose; the variant exists so downstream code can pattern-match
 //!   exhaustively.
 
+use std::io;
+
 use thiserror::Error;
 
-use super::types::{NameCandidate, Segment};
+use super::types::{Hole, NameCandidate, Segment};
 
 /// How to collapse holes in a [`NameCandidate`] into a disk string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +71,37 @@ pub struct FilledHole {
     pub substitute: String,
 }
 
+/// Interactive resolver supplied by the CLI (or future Tauri layer)
+/// when [`FillMode::Prompt`] is in effect. Core never knows what the
+/// surface looks like — it only asks for a substitute string per
+/// hole, in the order they appear in the candidate.
+///
+/// The prompter is responsible for honoring user cancellation
+/// (Ctrl-C, EOF on stdin, etc.) by returning [`PromptError::Cancelled`].
+pub trait HolePrompter {
+    /// Ask the user (or a script) for a substitute for `hole`. The
+    /// returned string is inserted verbatim — implementations are
+    /// expected to validate / sanitize before returning.
+    ///
+    /// # Errors
+    /// See [`PromptError`].
+    fn prompt(&self, hole: &Hole) -> Result<String, PromptError>;
+}
+
+/// Errors a [`HolePrompter`] can surface.
+#[derive(Debug, Error)]
+pub enum PromptError {
+    /// User declined to fill this hole (e.g. EOF, Ctrl-C).
+    #[error("user cancelled hole prompt")]
+    Cancelled,
+    /// I/O error reading the user's response.
+    #[error("io error reading prompt response: {0}")]
+    Io(#[from] io::Error),
+    /// The prompter returned an empty or otherwise invalid response.
+    #[error("invalid prompt response: {0}")]
+    Invalid(String),
+}
+
 /// Errors surfaced by [`resolve`].
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum UnresolvedHoleError {
@@ -83,6 +116,12 @@ pub enum UnresolvedHoleError {
         "FillMode::Prompt is not available in core::naming; resolve interactively at the CLI/UI layer"
     )]
     PromptUnavailable,
+    /// A [`HolePrompter`] was supplied but the user cancelled or the
+    /// prompter errored mid-resolution. The caller (preview builder)
+    /// converts this into an `Unresolved` conflict so the rename can
+    /// be re-attempted later.
+    #[error("interactive resolver failed for hole '{origin}': {reason}")]
+    PrompterFailed { origin: String, reason: String },
 }
 
 /// Collapse a candidate into a disk-ready basename under the chosen
@@ -125,6 +164,55 @@ pub fn resolve(
             count: unresolved.len(),
             origins: unresolved,
         });
+    }
+
+    if let Some(ext) = &candidate.ext {
+        out.push('.');
+        out.push_str(ext);
+    }
+
+    Ok(FillResolution {
+        basename: out,
+        filled_holes: filled,
+    })
+}
+
+/// Resolve a candidate using an interactive [`HolePrompter`].
+///
+/// Equivalent to calling [`resolve`] with [`FillMode::Prompt`] except
+/// the prompter actually answers each hole instead of returning
+/// [`UnresolvedHoleError::PromptUnavailable`]. Used by the CLI and
+/// future Tauri rename flow.
+///
+/// # Errors
+/// Returns [`UnresolvedHoleError::PrompterFailed`] if the prompter
+/// errors or the user cancels.
+pub fn resolve_with_prompter(
+    candidate: &NameCandidate,
+    prompter: &dyn HolePrompter,
+) -> Result<FillResolution, UnresolvedHoleError> {
+    let mut out = String::new();
+    let mut filled = Vec::new();
+
+    for seg in &candidate.segments {
+        match seg {
+            Segment::Literal(s) => out.push_str(s),
+            Segment::Hole(h) => match prompter.prompt(h) {
+                Ok(substitute) => {
+                    out.push_str(&substitute);
+                    filled.push(FilledHole {
+                        origin: h.origin.clone(),
+                        substitute,
+                    });
+                }
+                Err(err) => {
+                    return Err(UnresolvedHoleError::PrompterFailed {
+                        origin: h.origin.clone(),
+                        reason: err.to_string(),
+                    });
+                }
+            },
+        }
     }
 
     if let Some(ext) = &candidate.ext {
@@ -196,7 +284,7 @@ mod tests {
                 assert_eq!(count, 1);
                 assert_eq!(origins, vec!["カット".to_string()]);
             }
-            UnresolvedHoleError::PromptUnavailable => panic!("wrong variant"),
+            other => panic!("wrong variant: {other:?}"),
         }
     }
 
@@ -243,5 +331,47 @@ mod tests {
     fn hole_count_matches_holes() {
         assert_eq!(hole_count(&cand_with_holes()), 1);
         assert_eq!(hole_count(&clean_cand()), 0);
+    }
+
+    /// Stub prompter for tests: returns a fixed substitute per hole.
+    struct StubPrompter(String);
+    impl HolePrompter for StubPrompter {
+        fn prompt(&self, _: &Hole) -> Result<String, PromptError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// Stub that always cancels.
+    struct CancellingPrompter;
+    impl HolePrompter for CancellingPrompter {
+        fn prompt(&self, _: &Hole) -> Result<String, PromptError> {
+            Err(PromptError::Cancelled)
+        }
+    }
+
+    #[test]
+    fn resolve_with_prompter_substitutes_each_hole() {
+        let r = resolve_with_prompter(&cand_with_holes(), &StubPrompter("scene".into())).unwrap();
+        assert_eq!(r.basename, "scene_v01.png");
+        assert_eq!(r.filled_holes.len(), 1);
+        assert_eq!(r.filled_holes[0].substitute, "scene");
+    }
+
+    #[test]
+    fn resolve_with_prompter_passes_clean_candidate_through() {
+        let r = resolve_with_prompter(&clean_cand(), &StubPrompter("ignored".into())).unwrap();
+        assert_eq!(r.basename, "shot_v01.png");
+        assert!(r.filled_holes.is_empty());
+    }
+
+    #[test]
+    fn resolve_with_prompter_surfaces_cancellation() {
+        let err = resolve_with_prompter(&cand_with_holes(), &CancellingPrompter).unwrap_err();
+        match err {
+            UnresolvedHoleError::PrompterFailed { origin, .. } => {
+                assert_eq!(origin, "カット");
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
     }
 }

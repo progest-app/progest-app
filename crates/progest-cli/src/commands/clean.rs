@@ -1,9 +1,11 @@
-//! `progest clean` — preview-only mechanical name cleanup.
+//! `progest clean` — mechanical name cleanup with preview / apply.
 //!
 //! Walks the project tree, runs the `core::naming` pipeline over
 //! every surviving file's basename, and reports the candidates the
-//! pipeline would produce. `--apply` is deliberately out of scope
-//! for this PR; disk writes land alongside `core::rename`.
+//! pipeline would produce. `--apply` runs the changed-and-resolved
+//! candidates through `core::rename::Rename::apply` for an atomic
+//! commit, sharing the staging + history wiring with
+//! `progest rename`.
 //!
 //! Flags layer on top of `.progest/project.toml [cleanup]`:
 //!
@@ -25,13 +27,20 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use progest_core::fs::{EntryKind, IgnoreRules, ScanEntry, Scanner, StdFileSystem};
+use progest_core::history::SqliteStore as HistoryStore;
+use progest_core::index::SqliteIndex;
 use progest_core::naming::{
     CaseStyle, CleanupConfig, FillMode, Hole, NameCandidate, Segment, clean_basename,
     extract_cleanup_config, resolve,
 };
 use progest_core::project::{ProjectDocument, ProjectRoot};
+use progest_core::rename::{
+    ApplyOutcome, Rename, RenameRequest, build_preview, build_preview_with_prompter,
+};
 use progest_core::rules::BUILTIN_COMPOUND_EXTS;
 use serde::Serialize;
+
+use crate::prompter::StdinHolePrompter;
 
 // --- CLI flag types --------------------------------------------------------
 
@@ -70,6 +79,10 @@ impl CaseFlag {
 pub enum FillFlag {
     Skip,
     Placeholder,
+    /// Interactive: prompt the user (via stdin/stderr) for each hole.
+    /// Wired in by `progest rename`; `progest clean` still treats this
+    /// as `skip` because clean is preview-only.
+    Prompt,
 }
 
 // --- Entry point -----------------------------------------------------------
@@ -82,9 +95,12 @@ pub struct CleanArgs {
     pub strip_suffix: bool,
     pub fill_mode: FillFlag,
     pub placeholder: Option<String>,
+    /// When `true`, commit the would-rename candidates through
+    /// `core::rename::Rename::apply` after emitting the preview report.
+    pub apply: bool,
 }
 
-pub fn run(cwd: &Path, args: &CleanArgs) -> Result<()> {
+pub fn run(cwd: &Path, args: &CleanArgs) -> Result<i32> {
     let root = ProjectRoot::discover(cwd).with_context(|| {
         format!(
             "could not find a Progest project at or above `{}`",
@@ -103,7 +119,10 @@ pub fn run(cwd: &Path, args: &CleanArgs) -> Result<()> {
         FormatFlag::Json => emit_json(&report)?,
     }
 
-    Ok(())
+    if args.apply {
+        return commit(&root, &cfg, args, &entries);
+    }
+    Ok(0)
 }
 
 fn load_cfg(root: &ProjectRoot, args: &CleanArgs) -> Result<CleanupConfig> {
@@ -134,10 +153,14 @@ fn load_cfg(root: &ProjectRoot, args: &CleanArgs) -> Result<CleanupConfig> {
 
 fn build_fill_mode(args: &CleanArgs) -> FillMode {
     match args.fill_mode {
-        FillFlag::Skip => FillMode::Skip,
         FillFlag::Placeholder => {
             FillMode::Placeholder(args.placeholder.clone().unwrap_or_else(|| "_".to_string()))
         }
+        // `clean` is preview-only and runs unattended — treat
+        // `--fill-mode prompt` the same as `skip` so unresolved
+        // candidates surface as "skipped" instead of blocking on
+        // stdin. Use `progest rename` for interactive resolution.
+        FillFlag::Skip | FillFlag::Prompt => FillMode::Skip,
     }
 }
 
@@ -347,4 +370,93 @@ fn emit_json(report: &Report<'_>) -> Result<()> {
     let s = serde_json::to_string_pretty(report).context("serializing clean report")?;
     println!("{s}");
     Ok(())
+}
+
+// --- Apply -----------------------------------------------------------------
+
+/// Commit the changed-and-resolvable candidates from the report. Runs
+/// only the rename half (FS + .meta + index + history); the preview
+/// report is emitted separately above so the user can audit before
+/// re-running with `--apply`.
+fn commit(
+    root: &ProjectRoot,
+    cfg: &CleanupConfig,
+    args: &CleanArgs,
+    entries: &[ScanEntry],
+) -> Result<i32> {
+    // Build one RenameRequest per scanned entry; let the preview
+    // builder handle conflict detection (Identity, TargetExists,
+    // DuplicateTarget, Unresolved). Filtering "would change" up
+    // front would short-circuit Identity detection but also miss
+    // surprising collisions, so we let the preview catch all four.
+    let requests: Vec<RenameRequest> = entries
+        .iter()
+        .map(|e| {
+            let original = e.path.file_name().unwrap_or("");
+            let cand = clean_basename(original, cfg, BUILTIN_COMPOUND_EXTS);
+            RenameRequest::new(e.path.clone(), cand)
+        })
+        .collect();
+
+    let fs = StdFileSystem::new(root.root().to_path_buf());
+    let preview = match (&args.fill_mode, args.placeholder.clone()) {
+        (FillFlag::Skip, _) => build_preview(&requests, &FillMode::Skip, &fs)?,
+        (FillFlag::Placeholder, p) => build_preview(
+            &requests,
+            &FillMode::Placeholder(p.unwrap_or_else(|| "_".into())),
+            &fs,
+        )?,
+        (FillFlag::Prompt, _) => {
+            let prompter = StdinHolePrompter::from_stdio();
+            build_preview_with_prompter(&requests, &prompter, &fs)?
+        }
+    };
+
+    // Drop ops with `from == to` before checking cleanness:
+    // - Identity (no rename needed) — the dominant case
+    // - Unresolved (`to` falls back to `from`) — already surfaced in
+    //   the preview report; the user saw them and chose to apply
+    //   anyway, so skip them silently rather than blocking apply
+    let actionable: Vec<_> = preview
+        .ops
+        .into_iter()
+        .filter(|op| op.from != op.to)
+        .collect();
+    let preview = progest_core::rename::RenamePreview { ops: actionable };
+
+    if preview.ops.is_empty() {
+        println!("\n(nothing to apply)");
+        return Ok(0);
+    }
+    if !preview.is_clean() {
+        eprintln!(
+            "\nrefusing to apply: {} op(s) carry conflicts",
+            preview.conflicting_ops().count()
+        );
+        return Ok(1);
+    }
+
+    let index = SqliteIndex::open(&root.index_db())
+        .with_context(|| format!("opening index `{}`", root.index_db().display()))?;
+    let history = HistoryStore::open(&root.history_db())
+        .with_context(|| format!("opening history `{}`", root.history_db().display()))?;
+    let driver = Rename::new(&fs, &index, &history);
+    let outcome = driver.apply(&preview).context("applying rename batch")?;
+
+    emit_apply_summary(&outcome);
+    Ok(0)
+}
+
+fn emit_apply_summary(outcome: &ApplyOutcome) {
+    println!("\napplied {} op(s)", outcome.applied.len());
+    if let Some(g) = &outcome.group_id {
+        println!("  group: {g}");
+    }
+    println!("  batch: {}", outcome.batch_id);
+    if !outcome.index_warnings.is_empty() {
+        println!("  index warnings: {}", outcome.index_warnings.len());
+    }
+    if !outcome.history_warnings.is_empty() {
+        println!("  history warnings: {}", outcome.history_warnings.len());
+    }
 }

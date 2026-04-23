@@ -29,7 +29,10 @@ pub mod suggest;
 pub mod types;
 
 pub use case::{CaseConvertError, convert_case};
-pub use fill::{FillMode, FillResolution, UnresolvedHoleError, resolve};
+pub use fill::{
+    FillMode, FillResolution, HolePrompter, PromptError, UnresolvedHoleError, resolve,
+    resolve_with_prompter,
+};
 pub use loader::{CleanupConfigError, CleanupConfigWarning, extract_cleanup_config};
 pub use pipeline::clean_basename;
 pub use suggest::fill_suggested_names;

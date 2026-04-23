@@ -21,10 +21,14 @@
   - [x] `core::accepts` — builtin alias catalog / project alias loader / `[accepts]` 抽出 / effective_accepts 計算 / placement lint、7 シナリオ × 12 golden、`docs/ACCEPTS_ALIASES.md` 初版（feat/m2-core-accepts）
   - [x] `core::naming` — pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、`NameCandidate`（literal + hole）/ `Hole{origin,kind,pos}` / sentinel `⟨cjk-N⟩`、fill-mode `skip`/`placeholder[:STR]`（`prompt` は `core::rename` 着手時に実装）、`[cleanup]` loader、`core::rules::template` の private case fn 移管（heck 化）、`suggest::fill_suggested_names`、CLI `progest clean`（preview）、core integration + cli smoke test（feat/m2-core-naming）
   - [x] `core::history` — SQLite 1 テーブル `entries(id, ts, op_kind, payload_json, inverse_json, consumed, group_id)` + `meta(key, value)` pointer、5 op kind（rename / tag_add / tag_remove / meta_edit / import）、pure `invert()` で inverse 生成、`append` が redo branch を erase、undo/redo で `consumed` フラグを反転、retention 50 固定で pointer reconciliation 込み、`.progest/local/history.db`（feat/m2-core-history）
-  - [ ] `core::rename`
-  - [ ] CLI `lint` / `rename` / `undo` / `redo`
+  - [x] `core::rename` — `RenameOp`/`Conflict`/`ConflictKind`（pub serde wire type）、`build_preview` + `build_preview_with_prompter`（4 種 conflict 検出 + chain 対応）、`Rename::apply` の atomic 2-phase（`.progest/local/staging/<uuid>/` 経由 stage→commit→rollback、FS rename + `.meta` rename 同期）、index update は post-commit best-effort（`IndexWarning`）、`history::Store` 連携（auto-group_id for bulk、per-op 優先、`HistoryWarning`）、`fs::FaultyFileSystem` decorator + property test（5-op batch × 20 fault placements で all-or-nothing 不変条件確認）、core 39 + cli 5 smoke + 6 prompter test（feat/m2-core-rename）
+  - [x] `core::sequence` — 同 parent + stem prefix + separator + padding + extension で group、min 2 members、gap 許容、決定的出力。`requests_from_sequence(seq, new_stem)` で stem 置換 RenameRequest 生成（`seq-{uuid}` group_id 共有）、CLI `progest rename --sequence-stem`（feat/m2-core-rename）
+  - [x] `naming::HolePrompter` trait + `PromptError` + `resolve_with_prompter`、`StdinHolePrompter`（CLI 側、stderr へ prompt / stdout JSON 維持）、`build_preview_with_prompter` で `FillMode::Prompt` 実装（feat/m2-core-rename）
+  - [x] CLI `rename` / `clean --apply`（path 引数 + lint 結果 stdin パイプ両対応、`--mode preview|apply`、`--format text|json`、`--fill-mode skip|placeholder|prompt`、`--sequence-stem STEM`）（feat/m2-core-rename）
+  - [ ] CLI `lint` / `undo` / `redo`
   - [ ] `core::rules` follow-up（suggested_names / §6 `{seq}` 採番 / trace の `NotApplicable` 拡張 / `match_basename` の Regex::new キャッシュ化 / §4.3 `{{`・§4.4 mixed spec 等の golden 追加）— 別 issue で管理
   - [ ] `core::accepts` follow-up（import ランキング API / `suggested_destinations` 充填 / `[extension_compounds]` loader）— 別 issue で管理
+  - [ ] `core::rename` follow-up（`progest doctor` で `.progest/local/staging/` の orphan 掃除 / 連番の renumber 操作 / `--from-stdin` でのバルク dry-run）— 別 issue で管理
 - **M3 以降**: 未着手
 
 後続 PR に切り出した既完了モジュールの残タスク:
@@ -318,9 +322,11 @@ DSL の正規仕様は [NAMING_RULES_DSL.md](./NAMING_RULES_DSL.md)（parser / e
 - 組み込みエイリアス（`:image`, `:video`, `:audio`, `:raw`, `:3d`, `:project`, `:text`）の構成拡張子を確定し `docs/` に記載
 - `core::naming` — AI 非依存の機械的命名整理。pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、NameCandidate（literal + 穴）モデル、fill-mode（`prompt` / `placeholder[:STR]` / `skip`）、`.progest/project.toml [cleanup]` loader、`core::rules::template` の private case fn を移管（`heck` crate 差し替え、PascalCase→snake_case 対応）、violation.suggested_names[] の機械的充填 — **landed**（feat/m2-core-naming、`prompt` モードは `core::rename` 着手時に充填）
 - `core::history` — 操作ログ（rename / tag / meta_edit / import）、inverse 生成、undo/redo — **landed**（feat/m2-core-history、SQLite backend、retention 50、rename/CLI 配線は `core::rename` 合流時）
-- `core::rename` — preview、apply（原子トランザクション）、history 連携、naming の NameCandidate を入力に受ける
-- CLI: `lint`（placement カテゴリ統合）, `rename --preview|--apply`, `undo`, `redo`, `clean`（`progest clean <path> [--case snake|kebab|camel|pascal] [--strip-cjk] [--strip-suffix] [--fill-mode prompt|placeholder[:STR]|skip] [--apply]`）
-- ゴールデンテスト（naming / placement 評価結果を YAML に固定）
+- `core::rename` — preview（`build_preview` / `build_preview_with_prompter`）、apply（`.progest/local/staging/<uuid>/` 経由 2-phase + rollback、FS rename + `.meta` rename atomic、index update post-commit best-effort、history `Operation::Rename` append + bulk auto group_id）、`fs::FaultyFileSystem` decorator + 5-op × 20-fault property test — **landed**（feat/m2-core-rename）
+- `core::sequence` — 同 parent + stem prefix + separator + padding + extension で group、min 2 members、gap 許容、決定的出力。`requests_from_sequence(seq, new_stem)` で stem 置換 RenameRequest 生成 — **landed**（feat/m2-core-rename）
+- `naming::HolePrompter` trait + `StdinHolePrompter` で `FillMode::Prompt` 実装 — **landed**（feat/m2-core-rename）
+- CLI: `lint`（placement カテゴリ統合）, `rename --preview|--apply`（path 引数 + lint 結果 stdin パイプ + `--sequence-stem STEM` 対応、`--fill-mode skip|placeholder|prompt`）— **landed**, `undo`, `redo`, `clean`（`progest clean <path> [--case snake|kebab|camel|pascal] [--strip-cjk] [--strip-suffix] [--fill-mode prompt|placeholder[:STR]|skip] [--apply]`）— **landed**
+- ゴールデンテスト（naming / placement 評価結果を YAML に固定、rename は core 39 + cli 5 smoke + 6 prompter test + property test でカバー）
 
 完了条件: fixture プロジェクトに対して lint が naming / placement 両方の違反を期待通り検出、rename preview と apply が動く、undo で戻せる。
 

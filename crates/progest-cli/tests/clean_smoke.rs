@@ -131,6 +131,66 @@ fn placeholder_fill_mode_resolves_holes_to_underscore() -> Result<()> {
 }
 
 #[test]
+fn apply_renames_changed_candidates_on_disk() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let cwd = tmp.path();
+    init_project(cwd)?;
+    touch(cwd, "assets/MainRole_v01.png")?;
+    touch(cwd, "assets/already_clean.psd")?;
+
+    let output = Command::new(binary_path())
+        .current_dir(cwd)
+        .args([
+            "clean",
+            "assets/MainRole_v01.png",
+            "--strip-cjk",
+            "--strip-suffix",
+            "--apply",
+        ])
+        .output()?;
+    assert!(
+        output.status.success(),
+        "progest clean --apply exited non-zero: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Changed candidate moved to its cleaned name.
+    assert!(!cwd.join("assets/MainRole_v01.png").exists());
+    assert!(cwd.join("assets/main_role_v01.png").exists());
+    // Already-clean candidate untouched.
+    assert!(cwd.join("assets/already_clean.psd").exists());
+    // History recorded.
+    assert!(cwd.join(".progest/local/history.db").exists());
+    Ok(())
+}
+
+#[test]
+fn apply_with_no_changes_exits_zero_and_says_nothing_to_apply() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let cwd = tmp.path();
+    init_project(cwd)?;
+    touch(cwd, "assets/already_clean.psd")?;
+
+    let output = Command::new(binary_path())
+        .current_dir(cwd)
+        .args([
+            "clean",
+            "assets/already_clean.psd",
+            "--strip-cjk",
+            "--strip-suffix",
+            "--apply",
+        ])
+        .output()?;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("nothing to apply"),
+        "expected `nothing to apply` in stdout: {stdout}"
+    );
+    Ok(())
+}
+
+#[test]
 fn summary_counts_match_candidates() -> Result<()> {
     let tmp = TempDir::new()?;
     let cwd = tmp.path();
