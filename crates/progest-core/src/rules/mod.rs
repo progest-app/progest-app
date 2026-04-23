@@ -13,11 +13,16 @@
 //! resolver, and the top-level `evaluate` entry point.
 
 pub mod applies_to;
+pub mod constraint;
 pub mod loader;
 pub mod template;
 pub mod types;
 
 pub use applies_to::{AppliesToError, CompiledAppliesTo, CompiledPattern, compute_specificity};
+pub use constraint::{
+    BUILTIN_COMPOUND_EXTS, CompiledConstraint, ConstraintCompileError, ConstraintFailure,
+    compile_constraint, evaluate_constraint, split_basename,
+};
 pub use loader::{
     AppliesToRaw, LoadError, LoadWarning, RULES_SCHEMA_VERSION, RawConstraintBody, RawRule,
     RawRuleBody, RawTemplateBody, RulesDocument, load_document,
