@@ -17,6 +17,7 @@
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 /// Errors returned when constructing a [`ProjectPath`].
@@ -185,6 +186,19 @@ impl fmt::Display for ProjectPath {
     }
 }
 
+impl Serialize for ProjectPath {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ProjectPath {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Self::new(raw).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +304,30 @@ mod tests {
         let root = Path::new("/tmp/project");
         let abs = Path::new("/elsewhere/foo");
         assert!(ProjectPath::from_absolute(root, abs).is_err());
+    }
+
+    #[test]
+    fn serializes_as_forward_slash_string() {
+        let p = ProjectPath::new("assets/foo.psd").unwrap();
+        let json = serde_json::to_string(&p).unwrap();
+        assert_eq!(json, "\"assets/foo.psd\"");
+    }
+
+    #[test]
+    fn deserializes_from_string_and_validates() {
+        let p: ProjectPath = serde_json::from_str("\"assets/foo.psd\"").unwrap();
+        assert_eq!(p.as_str(), "assets/foo.psd");
+
+        // Absolute paths are rejected at the deserialize boundary.
+        let err: Result<ProjectPath, _> = serde_json::from_str("\"/abs\"");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn root_round_trips_through_empty_string() {
+        let json = serde_json::to_string(&ProjectPath::root()).unwrap();
+        assert_eq!(json, "\"\"");
+        let back: ProjectPath = serde_json::from_str("\"\"").unwrap();
+        assert!(back.is_root());
     }
 }
