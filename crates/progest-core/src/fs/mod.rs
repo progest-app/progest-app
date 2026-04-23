@@ -10,12 +10,14 @@
 //! (`core::meta`, `core::scanner`, etc.) depend on this trait rather than on
 //! [`std::fs`] or [`std::path`] directly.
 
+pub mod fault;
 pub mod filesystem;
 pub mod ignore;
 pub mod mem;
 pub mod path;
 pub mod scanner;
 
+pub use fault::{FaultKind, FaultyFileSystem, Op as FaultOp};
 pub use filesystem::{FileSystem, FsError, Metadata, StdFileSystem};
 pub use ignore::{DEFAULT_PATTERNS, IgnoreError, IgnoreRules, USER_IGNORE_PATH};
 pub use mem::MemFileSystem;

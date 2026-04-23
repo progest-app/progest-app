@@ -49,6 +49,7 @@ unicode-segmentation = "1"
 unicode-normalization = "0.1"
 serde_yaml = "0.9"
 heck = "0.5"
+proptest = "1"
 
 [profile.release]
 lto = "thin"

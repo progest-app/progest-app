@@ -36,6 +36,7 @@ tempfile.workspace = true
 serde_json.workspace = true
 criterion.workspace = true
 serde_yaml.workspace = true
+proptest.workspace = true
 
 [[bench]]
 name = "scan"
