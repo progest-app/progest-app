@@ -23,6 +23,7 @@ use regex::Regex;
 use thiserror::Error;
 use toml::Value;
 
+use super::constraint::split_basename;
 use crate::meta::MetaDocument;
 
 // --- Public types ----------------------------------------------------------
@@ -800,6 +801,15 @@ pub struct TemplateMatch {
 /// `{date:}` placeholders. Missing `meta` plus a dynamic placeholder
 /// produces an [`EvaluationError`] (spec §4.6).
 ///
+/// `compound_exts` is the effective union of
+/// [`crate::rules::BUILTIN_COMPOUND_EXTS`] and the project's
+/// `.progest/schema.toml` `[extension_compounds]` entries. It feeds
+/// `{ext}` matching: the extension is peeled off with longest-match
+/// before the stem is regex-checked (spec §4.8), so templates like
+/// `{desc:snake}.{ext}` correctly treat `archive.tar.gz` as
+/// (stem = "archive", ext = "tar.gz") rather than eating the inner
+/// dot into `desc`.
+///
 /// # Errors
 ///
 /// Returns [`EvaluationError`] only for dynamic-placeholder failures
@@ -810,27 +820,65 @@ pub fn match_basename(
     template: &CompiledTemplate,
     basename: &str,
     meta: Option<&MetaDocument>,
+    compound_exts: &[&str],
 ) -> Result<TemplateMatch, EvaluationError> {
-    // Build the anchored regex. Dynamic atoms resolve their literal
-    // value from `meta` and get escaped into the regex.
+    let atoms = template.atoms();
+    let ext_pos = atoms
+        .iter()
+        .position(|a| matches!(a, Atom::Static(s) if matches!(s.kind, StaticKind::Ext)));
+
+    // Spec §4.8: peel the longest known compound extension, then match
+    // the stem against the non-ext atoms. Without this pre-split, a
+    // regex `(?<desc>.+)\.(?<ext>[A-Za-z0-9.]+)` would let
+    // `archive.tar.gz` resolve to (desc="archive.tar", ext="gz") or
+    // even (desc="archive", ext="tar.gz") non-deterministically.
+    let (subject, captured_ext) = if ext_pos.is_some() {
+        let (stem, ext) = split_basename(basename, compound_exts);
+        let Some(ext) = ext else {
+            return Ok(TemplateMatch {
+                matched: false,
+                captures: BTreeMap::new(),
+                failure_reason: Some(format!(
+                    "basename `{basename}` has no extension, but template `{raw}` requires `{{ext}}`",
+                    raw = template.raw()
+                )),
+            });
+        };
+        (stem.to_owned(), Some(ext.to_owned()))
+    } else {
+        (basename.to_owned(), None)
+    };
+
     let mut pattern = String::from("^");
-    let mut has_ext_atom = false;
     let mut capture_keys: Vec<String> = Vec::new();
 
-    for atom in template.atoms() {
+    for (i, atom) in atoms.iter().enumerate() {
+        if Some(i) == ext_pos {
+            // `{ext}` is consumed by `split_basename` above — do not
+            // emit a regex fragment for it.
+            continue;
+        }
         match atom {
-            Atom::Literal(s) => pattern.push_str(&regex::escape(s)),
+            Atom::Literal(s) => {
+                // The dot separator before `{ext}` is implicitly owned
+                // by the split — strip it from the literal so the stem
+                // regex does not demand a trailing dot that was already
+                // removed from the subject.
+                let effective = if ext_pos == Some(i + 1) {
+                    s.strip_suffix('.').unwrap_or(s)
+                } else {
+                    s.as_str()
+                };
+                pattern.push_str(&regex::escape(effective));
+            }
             Atom::Static(s) => {
-                if matches!(s.kind, StaticKind::Ext) {
-                    has_ext_atom = true;
-                }
                 write!(
                     pattern,
                     "(?<{cap}>{frag})",
                     cap = s.capture,
                     frag = s.regex_fragment
                 )
-                .ok();
+                .expect("writing to String never fails");
                 capture_keys.push(s.capture.clone());
             }
             Atom::Dynamic(d) => {
@@ -843,11 +891,11 @@ pub fn match_basename(
 
     let re = Regex::new(&pattern).map_err(|e| EvaluationError::Regex(e.to_string()))?;
 
-    match re.captures(basename) {
+    match re.captures(&subject) {
         None => Ok(TemplateMatch {
             matched: false,
             captures: BTreeMap::new(),
-            failure_reason: Some(describe_mismatch(template, basename, has_ext_atom)),
+            failure_reason: Some(describe_mismatch(template, basename, ext_pos.is_some())),
         }),
         Some(caps) => {
             let mut captures = BTreeMap::new();
@@ -855,6 +903,12 @@ pub fn match_basename(
                 if let Some(m) = caps.name(&key) {
                     captures.insert(key, m.as_str().to_owned());
                 }
+            }
+            if let Some(pos) = ext_pos
+                && let Atom::Static(ext_atom) = &atoms[pos]
+                && let Some(ext) = captured_ext
+            {
+                captures.insert(ext_atom.capture.clone(), ext);
             }
             Ok(TemplateMatch {
                 matched: true,
@@ -1121,6 +1175,7 @@ fn format_datetime(dt: &toml::value::Datetime, fmt: &DateFormat) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::constraint::BUILTIN_COMPOUND_EXTS;
     use super::*;
 
     fn meta_with_custom(pairs: &[(&str, toml::Value)]) -> MetaDocument {
@@ -1295,7 +1350,13 @@ mod tests {
     #[test]
     fn matches_canonical_shot_filename() {
         let t = compile("{prefix}_{seq:03d}_{desc:snake}_v{version:02d}.{ext}").unwrap();
-        let m = match_basename(&t, "ch010_001_bg_forest_v03.psd", None).unwrap();
+        let m = match_basename(
+            &t,
+            "ch010_001_bg_forest_v03.psd",
+            None,
+            BUILTIN_COMPOUND_EXTS,
+        )
+        .unwrap();
         assert!(m.matched, "failure: {:?}", m.failure_reason);
         assert_eq!(
             m.captures.get("m_prefix").map(String::as_str),
@@ -1313,7 +1374,7 @@ mod tests {
     #[test]
     fn match_rejects_missing_seq_segment() {
         let t = compile("{prefix}_{seq:03d}_{desc:snake}_v{version:02d}.{ext}").unwrap();
-        let m = match_basename(&t, "ch010_bg_forest_v03.psd", None).unwrap();
+        let m = match_basename(&t, "ch010_bg_forest_v03.psd", None, BUILTIN_COMPOUND_EXTS).unwrap();
         assert!(!m.matched);
         assert!(m.failure_reason.is_some());
     }
@@ -1321,7 +1382,7 @@ mod tests {
     #[test]
     fn match_rejects_non_snake_desc() {
         let t = compile("{prefix}_{desc:snake}.{ext}").unwrap();
-        let m = match_basename(&t, "ch010_BgForest.psd", None).unwrap();
+        let m = match_basename(&t, "ch010_BgForest.psd", None, BUILTIN_COMPOUND_EXTS).unwrap();
         assert!(!m.matched);
     }
 
@@ -1331,7 +1392,13 @@ mod tests {
     fn matches_field_placeholder_with_literal_expansion() {
         let t = compile("sc{field:scene:03d}_{desc:slug}.{ext}").unwrap();
         let meta = meta_with_custom(&[("scene", toml::Value::Integer(20))]);
-        let m = match_basename(&t, "sc020_forest-night.tif", Some(&meta)).unwrap();
+        let m = match_basename(
+            &t,
+            "sc020_forest-night.tif",
+            Some(&meta),
+            BUILTIN_COMPOUND_EXTS,
+        )
+        .unwrap();
         assert!(m.matched, "failure: {:?}", m.failure_reason);
     }
 
@@ -1340,7 +1407,13 @@ mod tests {
         let t = compile("sc{field:scene:03d}_{desc:slug}.{ext}").unwrap();
         let meta = meta_with_custom(&[("scene", toml::Value::Integer(20))]);
         // custom.scene = 20 → expands to "020", but path has "999"
-        let m = match_basename(&t, "sc999_forest-night.tif", Some(&meta)).unwrap();
+        let m = match_basename(
+            &t,
+            "sc999_forest-night.tif",
+            Some(&meta),
+            BUILTIN_COMPOUND_EXTS,
+        )
+        .unwrap();
         assert!(!m.matched);
     }
 
@@ -1348,7 +1421,7 @@ mod tests {
     fn field_missing_is_evaluation_error() {
         let t = compile("sc{field:scene:03d}.{ext}").unwrap();
         let meta = meta_with_custom(&[]);
-        let err = match_basename(&t, "sc020.tif", Some(&meta)).unwrap_err();
+        let err = match_basename(&t, "sc020.tif", Some(&meta), BUILTIN_COMPOUND_EXTS).unwrap_err();
         assert!(matches!(err, EvaluationError::MissingCustomField { .. }));
     }
 
@@ -1356,7 +1429,7 @@ mod tests {
     fn field_wrong_type_is_evaluation_error() {
         let t = compile("sc{field:scene:03d}.{ext}").unwrap();
         let meta = meta_with_custom(&[("scene", toml::Value::String("twenty".into()))]);
-        let err = match_basename(&t, "sc020.tif", Some(&meta)).unwrap_err();
+        let err = match_basename(&t, "sc020.tif", Some(&meta), BUILTIN_COMPOUND_EXTS).unwrap_err();
         assert!(matches!(err, EvaluationError::WrongFieldType { .. }));
     }
 
@@ -1365,7 +1438,7 @@ mod tests {
         let t = compile("sc{field:scene:03d}.{ext}").unwrap();
         // 9999 > 3 digits → overflow
         let meta = meta_with_custom(&[("scene", toml::Value::Integer(9999))]);
-        let err = match_basename(&t, "sc9999.tif", Some(&meta)).unwrap_err();
+        let err = match_basename(&t, "sc9999.tif", Some(&meta), BUILTIN_COMPOUND_EXTS).unwrap_err();
         assert!(matches!(err, EvaluationError::NumericOverflow { .. }));
     }
 
@@ -1412,7 +1485,7 @@ mod tests {
     fn string_spec_on_int_field_is_evaluation_error() {
         let t = compile("{field:name:snake}.{ext}").unwrap();
         let meta = meta_with_custom(&[("name", toml::Value::Integer(42))]);
-        let err = match_basename(&t, "42.png", Some(&meta)).unwrap_err();
+        let err = match_basename(&t, "42.png", Some(&meta), BUILTIN_COMPOUND_EXTS).unwrap_err();
         assert!(matches!(
             err,
             EvaluationError::WrongFieldType {
@@ -1428,8 +1501,62 @@ mod tests {
         // default so `{field:shot}` + `shot = 20` → literal "20".
         let t = compile("sc-{field:shot}.{ext}").unwrap();
         let meta = meta_with_custom(&[("shot", toml::Value::Integer(20))]);
-        let m = match_basename(&t, "sc-20.png", Some(&meta)).unwrap();
+        let m = match_basename(&t, "sc-20.png", Some(&meta), BUILTIN_COMPOUND_EXTS).unwrap();
         assert!(m.matched, "failure: {:?}", m.failure_reason);
+    }
+
+    // --- Compound extension (§4.8) ---------------------------------------
+
+    #[test]
+    fn ext_atom_matches_builtin_compound_longest() {
+        // `archive.tar.gz` → (stem="archive", ext="tar.gz") via the
+        // builtin compound set. Without compound support, a greedy
+        // regex could split this as (stem="archive.tar", ext="gz").
+        let t = compile("{desc:snake}.{ext}").unwrap();
+        let m = match_basename(&t, "archive.tar.gz", None, BUILTIN_COMPOUND_EXTS).unwrap();
+        assert!(m.matched, "failure: {:?}", m.failure_reason);
+        assert_eq!(
+            m.captures.get("m_desc").map(String::as_str),
+            Some("archive")
+        );
+        assert_eq!(m.captures.get("m_ext").map(String::as_str), Some("tar.gz"));
+    }
+
+    #[test]
+    fn ext_atom_falls_back_to_last_dot_for_unknown_compound() {
+        // `foo.psd.bak` has no entry in BUILTIN_COMPOUND_EXTS, so we
+        // peel only `.bak` and the stem keeps its inner dot. The
+        // `{desc:snake}` atom does not permit `.` so this is a miss.
+        let t = compile("{desc:snake}.{ext}").unwrap();
+        let m = match_basename(&t, "foo.psd.bak", None, BUILTIN_COMPOUND_EXTS).unwrap();
+        assert!(!m.matched);
+    }
+
+    #[test]
+    fn ext_atom_unknown_compound_registered_by_project_is_peeled() {
+        // When the project declares `psd.bak` in
+        // `[extension_compounds]`, it becomes a longest-match candidate
+        // and the stem regains a clean spelling.
+        let t = compile("{desc:snake}.{ext}").unwrap();
+        let compound: &[&str] = &["psd.bak"];
+        let m = match_basename(&t, "foo.psd.bak", None, compound).unwrap();
+        assert!(m.matched, "failure: {:?}", m.failure_reason);
+        assert_eq!(m.captures.get("m_desc").map(String::as_str), Some("foo"));
+        assert_eq!(m.captures.get("m_ext").map(String::as_str), Some("psd.bak"));
+    }
+
+    #[test]
+    fn ext_atom_rejects_extensionless_basename() {
+        let t = compile("{prefix}.{ext}").unwrap();
+        let m = match_basename(&t, "README", None, BUILTIN_COMPOUND_EXTS).unwrap();
+        assert!(!m.matched);
+        assert!(
+            m.failure_reason
+                .as_deref()
+                .is_some_and(|r| r.contains("has no extension")),
+            "unexpected reason: {:?}",
+            m.failure_reason
+        );
     }
 
     // --- Date match -------------------------------------------------------
@@ -1439,7 +1566,8 @@ mod tests {
         let t = compile("snap-{date:YYYYMMDD}.{ext}").unwrap();
         let mut meta = meta_with_custom(&[]);
         meta.created_at = Some("2026-04-20T10:00:00Z".parse().unwrap());
-        let m = match_basename(&t, "snap-20260420.png", Some(&meta)).unwrap();
+        let m =
+            match_basename(&t, "snap-20260420.png", Some(&meta), BUILTIN_COMPOUND_EXTS).unwrap();
         assert!(m.matched);
     }
 
@@ -1447,7 +1575,8 @@ mod tests {
     fn date_without_created_at_is_evaluation_error() {
         let t = compile("snap-{date:YYYYMMDD}.{ext}").unwrap();
         let meta = meta_with_custom(&[]);
-        let err = match_basename(&t, "snap-20260420.png", Some(&meta)).unwrap_err();
+        let err = match_basename(&t, "snap-20260420.png", Some(&meta), BUILTIN_COMPOUND_EXTS)
+            .unwrap_err();
         assert!(matches!(err, EvaluationError::MissingCreatedAt));
     }
 
@@ -1456,10 +1585,10 @@ mod tests {
     #[test]
     fn slug_spec_matches_hyphenated_lowercase() {
         let t = compile("{prefix:slug}.{ext}").unwrap();
-        let m = match_basename(&t, "forest-night.png", None).unwrap();
+        let m = match_basename(&t, "forest-night.png", None, BUILTIN_COMPOUND_EXTS).unwrap();
         assert!(m.matched);
         assert!(
-            !match_basename(&t, "forest_night.png", None)
+            !match_basename(&t, "forest_night.png", None, BUILTIN_COMPOUND_EXTS)
                 .unwrap()
                 .matched
         );
@@ -1470,8 +1599,16 @@ mod tests {
         // `:snake:lower` → regex is `:lower`'s (last in chain).
         // `:lower` allows no uppercase; `snake_case` already lowercase → matches.
         let t = compile("{prefix:snake:lower}.{ext}").unwrap();
-        assert!(match_basename(&t, "ch010_bg.psd", None).unwrap().matched);
-        assert!(!match_basename(&t, "ch010_Bg.psd", None).unwrap().matched);
+        assert!(
+            match_basename(&t, "ch010_bg.psd", None, BUILTIN_COMPOUND_EXTS)
+                .unwrap()
+                .matched
+        );
+        assert!(
+            !match_basename(&t, "ch010_Bg.psd", None, BUILTIN_COMPOUND_EXTS)
+                .unwrap()
+                .matched
+        );
     }
 
     // --- Utility unit tests -----------------------------------------------

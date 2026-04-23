@@ -117,6 +117,7 @@ pub fn evaluate(
             basename,
             file_id,
             meta,
+            compound_exts,
             &mut violations,
         );
     }
@@ -238,6 +239,7 @@ fn make_rule_hit(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn evaluate_template_winner(
     rule: &CompiledRule,
     specificity: SpecificityScore,
@@ -245,6 +247,7 @@ fn evaluate_template_winner(
     basename: &str,
     file_id: Option<crate::identity::FileId>,
     meta: Option<&MetaDocument>,
+    compound_exts: &[&str],
     violations: &mut Vec<Violation>,
 ) {
     let tpl = match &rule.body {
@@ -252,7 +255,7 @@ fn evaluate_template_winner(
         CompiledRuleBody::Constraint(_) => return,
     };
 
-    match match_basename(tpl, basename, meta) {
+    match match_basename(tpl, basename, meta, compound_exts) {
         Ok(TemplateMatch {
             matched: true,
             captures: _,
