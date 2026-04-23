@@ -15,6 +15,7 @@ pub mod index;
 pub mod meta;
 pub mod project;
 pub mod reconcile;
+pub mod rules;
 pub mod watch;
 
 /// The crate version, synced with the workspace.
