@@ -31,6 +31,18 @@
 //! renames because the cache stayed stale would punish the user for
 //! a recoverable condition.
 //!
+//! # History wiring
+//!
+//! After the FS commit and index update, a [`history::Operation::Rename`]
+//! entry is appended for every applied op. Bulk renames (≥2 ops) are
+//! tied together by a fresh `group_id` so [`history::Store::undo`] can
+//! roll the whole batch back as a unit. A caller-supplied
+//! [`RenameOp::group_id`] (e.g. set by `core::sequence` for frame
+//! batches) takes precedence over the auto-generated one. History
+//! append failures land in [`ApplyOutcome::history_warnings`] for the
+//! same reason as index failures: undo coverage is recoverable, FS
+//! truth is not.
+//!
 //! # Rollback caveats
 //!
 //! Rollback is best-effort: rollback uses `fs.rename`, which can
@@ -45,6 +57,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::fs::{FileSystem, FsError, ProjectPath, ProjectPathError};
+use crate::history::{self, AppendRequest, Operation};
 use crate::index::{Index, IndexError};
 use crate::meta::{MetaStoreError, sidecar_path};
 
@@ -68,18 +81,34 @@ pub struct IndexWarning {
     pub message: String,
 }
 
+/// One history entry that failed to append. The FS rename and index
+/// update both succeeded; only undo coverage was lost.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HistoryWarning {
+    pub from: ProjectPath,
+    pub to: ProjectPath,
+    pub message: String,
+}
+
 /// Result of a successful [`Rename::apply`].
 #[derive(Debug)]
 pub struct ApplyOutcome {
     /// UUID identifying the staging batch directory under
     /// `.progest/local/staging/`. Empty when the preview was empty.
     pub batch_id: String,
+    /// `group_id` shared by every history entry in this batch. `None`
+    /// when the batch has fewer than 2 ops and the caller did not
+    /// pre-set per-op `group_id`s.
+    pub group_id: Option<String>,
     /// Ops that committed successfully. Same length and order as the
     /// input preview's clean ops.
     pub applied: Vec<AppliedOp>,
     /// Index updates that failed after a successful FS commit. FS
     /// state is correct; reconcile will repair.
     pub index_warnings: Vec<IndexWarning>,
+    /// History entries that failed to append after a successful FS
+    /// commit. FS state is correct; only undo coverage was lost.
+    pub history_warnings: Vec<HistoryWarning>,
 }
 
 /// Which half of a (file, sidecar) pair was being moved when an FS
@@ -133,12 +162,13 @@ pub enum ApplyError {
     Meta(#[from] MetaStoreError),
 }
 
-/// Apply driver. Holds borrowed references to the filesystem and
-/// index seams so callers can compose with their own meta-store /
-/// reconcile loops.
+/// Apply driver. Holds borrowed references to the filesystem,
+/// index, and history seams so callers can compose with their own
+/// meta-store / reconcile loops.
 pub struct Rename<'a> {
     fs: &'a dyn FileSystem,
     index: &'a dyn Index,
+    history: &'a dyn history::Store,
 }
 
 #[derive(Debug)]
@@ -151,8 +181,12 @@ struct StagedOp {
 }
 
 impl<'a> Rename<'a> {
-    pub fn new(fs: &'a dyn FileSystem, index: &'a dyn Index) -> Self {
-        Self { fs, index }
+    pub fn new(
+        fs: &'a dyn FileSystem,
+        index: &'a dyn Index,
+        history: &'a dyn history::Store,
+    ) -> Self {
+        Self { fs, index, history }
     }
 
     /// Execute every clean op in `preview`. See module docs for the
@@ -168,8 +202,10 @@ impl<'a> Rename<'a> {
         if preview.ops.is_empty() {
             return Ok(ApplyOutcome {
                 batch_id: String::new(),
+                group_id: None,
                 applied: Vec::new(),
                 index_warnings: Vec::new(),
+                history_warnings: Vec::new(),
             });
         }
 
@@ -182,13 +218,41 @@ impl<'a> Rename<'a> {
         let staged = self.stage_all(&preview.ops, &staging)?;
         self.commit_all(&staged)?;
 
-        let mut warnings = Vec::new();
+        // Bulk renames get a fresh group_id so undo can reverse the
+        // whole batch as a unit. A per-op group_id (e.g. set by
+        // `core::sequence` for frame batches) takes precedence.
+        let batch_group = (preview.ops.len() >= 2).then(|| Uuid::now_v7().simple().to_string());
+
+        let mut index_warnings = Vec::new();
+        let mut history_warnings = Vec::new();
         for staged_op in &staged {
             if let Err(message) = self.update_index(&staged_op.op.from, &staged_op.op.to) {
-                warnings.push(IndexWarning {
+                index_warnings.push(IndexWarning {
                     from: staged_op.op.from.clone(),
                     to: staged_op.op.to.clone(),
                     message,
+                });
+            }
+
+            let effective_group = staged_op
+                .op
+                .group_id
+                .clone()
+                .or_else(|| batch_group.clone());
+            let op = Operation::Rename {
+                from: staged_op.op.from.clone(),
+                to: staged_op.op.to.clone(),
+                rule_id: staged_op.op.rule_id.clone(),
+            };
+            let mut req = AppendRequest::new(op);
+            if let Some(group) = effective_group {
+                req = req.with_group(group);
+            }
+            if let Err(e) = self.history.append(&req) {
+                history_warnings.push(HistoryWarning {
+                    from: staged_op.op.from.clone(),
+                    to: staged_op.op.to.clone(),
+                    message: e.to_string(),
                 });
             }
         }
@@ -196,8 +260,10 @@ impl<'a> Rename<'a> {
         let applied = staged.into_iter().map(|s| s.op).collect();
         Ok(ApplyOutcome {
             batch_id,
+            group_id: batch_group,
             applied,
-            index_warnings: warnings,
+            index_warnings,
+            history_warnings,
         })
     }
 
@@ -335,6 +401,7 @@ impl<'a> Rename<'a> {
 mod tests {
     use super::*;
     use crate::fs::{FaultKind, FaultOp, FaultyFileSystem, MemFileSystem};
+    use crate::history::{Entry, HistoryError, OpKind, SqliteStore, Store};
     use crate::identity::{FileId, Fingerprint};
     use crate::index::{FileRow, SqliteIndex};
     use crate::meta::{Kind, Status};
@@ -383,6 +450,7 @@ mod tests {
     fn happy_path_renames_file_and_sidecar() {
         let fs = MemFileSystem::new();
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
         write_with_meta(&fs, "a.psd");
         index.upsert_file(&sample_row("a.psd")).unwrap();
 
@@ -393,7 +461,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = Rename::new(&fs, &index).apply(&preview).unwrap();
+        let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
         assert_eq!(outcome.applied.len(), 1);
         assert!(outcome.index_warnings.is_empty());
 
@@ -413,6 +481,7 @@ mod tests {
     fn happy_path_handles_chain_renames() {
         let fs = MemFileSystem::new();
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
         write_with_meta(&fs, "foo.psd");
         write_with_meta(&fs, "bar.psd");
         index.upsert_file(&sample_row("foo.psd")).unwrap();
@@ -427,7 +496,7 @@ mod tests {
         let preview = build_preview(&reqs, &FillMode::Skip, &fs).unwrap();
         assert!(preview.is_clean());
 
-        Rename::new(&fs, &index).apply(&preview).unwrap();
+        Rename::new(&fs, &index, &history).apply(&preview).unwrap();
         assert_eq!(fs.read(&p("bar.psd")).unwrap(), b"foo.psd");
         assert_eq!(fs.read(&p("baz.psd")).unwrap(), b"bar.psd");
         assert!(!fs.exists(&p("foo.psd")));
@@ -437,6 +506,7 @@ mod tests {
     fn renames_without_sidecar_are_supported() {
         let fs = MemFileSystem::new();
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
         // No .meta sidecar — file alone.
         fs.write_atomic(&p("a.psd"), b"a").unwrap();
 
@@ -446,7 +516,7 @@ mod tests {
             &fs,
         )
         .unwrap();
-        Rename::new(&fs, &index).apply(&preview).unwrap();
+        Rename::new(&fs, &index, &history).apply(&preview).unwrap();
         assert_eq!(fs.read(&p("b.psd")).unwrap(), b"a");
         assert!(!fs.exists(&p("a.psd.meta")));
     }
@@ -455,6 +525,7 @@ mod tests {
     fn refuses_when_preview_carries_conflicts() {
         let fs = MemFileSystem::new();
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
         write_with_meta(&fs, "a.psd");
         write_with_meta(&fs, "b.psd"); // collision target
 
@@ -466,7 +537,9 @@ mod tests {
         .unwrap();
         assert!(!preview.is_clean());
 
-        let err = Rename::new(&fs, &index).apply(&preview).unwrap_err();
+        let err = Rename::new(&fs, &index, &history)
+            .apply(&preview)
+            .unwrap_err();
         assert!(matches!(err, ApplyError::PreviewHasConflicts { .. }));
 
         // Disk untouched.
@@ -478,8 +551,9 @@ mod tests {
     fn empty_preview_returns_empty_outcome() {
         let fs = MemFileSystem::new();
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
         let preview = RenamePreview { ops: Vec::new() };
-        let outcome = Rename::new(&fs, &index).apply(&preview).unwrap();
+        let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
         assert!(outcome.applied.is_empty());
         assert!(outcome.batch_id.is_empty());
     }
@@ -491,6 +565,7 @@ mod tests {
         write_with_meta(&inner, "b.psd");
         let fs = FaultyFileSystem::new(inner);
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
 
         // Calls 1, 2 = stage a.psd file + sidecar. Call 3 = stage b.psd file → fail.
         fs.fail_at(FaultOp::Rename, 3, FaultKind::PermissionDenied);
@@ -505,7 +580,9 @@ mod tests {
         )
         .unwrap();
 
-        let err = Rename::new(&fs, &index).apply(&preview).unwrap_err();
+        let err = Rename::new(&fs, &index, &history)
+            .apply(&preview)
+            .unwrap_err();
         assert!(matches!(
             err,
             ApplyError::Stage {
@@ -530,6 +607,7 @@ mod tests {
         write_with_meta(&inner, "a.psd");
         let fs = FaultyFileSystem::new(inner);
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
 
         // Calls: 1=stage file, 2=stage sidecar → fail.
         fs.fail_at(FaultOp::Rename, 2, FaultKind::PermissionDenied);
@@ -541,7 +619,9 @@ mod tests {
         )
         .unwrap();
 
-        let err = Rename::new(&fs, &index).apply(&preview).unwrap_err();
+        let err = Rename::new(&fs, &index, &history)
+            .apply(&preview)
+            .unwrap_err();
         assert!(matches!(
             err,
             ApplyError::Stage {
@@ -564,6 +644,7 @@ mod tests {
         write_with_meta(&inner, "b.psd");
         let fs = FaultyFileSystem::new(inner);
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
 
         // Stage: 4 renames (a.psd file, a.meta, b.psd file, b.meta).
         // Commit: 5=a.psd→aa.psd file, 6=a.meta→aa.meta, 7=b.psd→bb.psd file → fail.
@@ -579,7 +660,9 @@ mod tests {
         )
         .unwrap();
 
-        let err = Rename::new(&fs, &index).apply(&preview).unwrap_err();
+        let err = Rename::new(&fs, &index, &history)
+            .apply(&preview)
+            .unwrap_err();
         assert!(matches!(
             err,
             ApplyError::Commit {
@@ -603,6 +686,7 @@ mod tests {
         // before apply and assert the rename still goes through.
         let fs = MemFileSystem::new();
         let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
         write_with_meta(&fs, "a.psd");
         // No row inserted into the index for this file.
 
@@ -612,13 +696,205 @@ mod tests {
             &fs,
         )
         .unwrap();
-        let outcome = Rename::new(&fs, &index).apply(&preview).unwrap();
+        let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
 
         // FS landed.
         assert_eq!(fs.read(&p("b.psd")).unwrap(), b"a.psd");
         // No row → No warning (the update is a no-op when there's
         // nothing to update; reconcile will create the row later).
         assert!(outcome.index_warnings.is_empty());
+    }
+
+    /// Counts every `append` call and rejects each with a fixed
+    /// `HistoryError`. Used to drive the `history_warnings` path
+    /// without needing to corrupt a real `SqliteStore`.
+    struct AlwaysFailingStore;
+
+    impl Store for AlwaysFailingStore {
+        fn append(&self, _: &AppendRequest) -> Result<Entry, HistoryError> {
+            Err(HistoryError::InvalidOpKind("test injection".into()))
+        }
+        fn list(&self, _: usize) -> Result<Vec<Entry>, HistoryError> {
+            Ok(Vec::new())
+        }
+        fn head(&self) -> Result<Option<Entry>, HistoryError> {
+            Ok(None)
+        }
+        fn undo(&self) -> Result<Entry, HistoryError> {
+            Err(HistoryError::UndoEmpty)
+        }
+        fn redo(&self) -> Result<Entry, HistoryError> {
+            Err(HistoryError::RedoEmpty)
+        }
+    }
+
+    #[test]
+    fn single_op_appends_history_entry_without_group_id() {
+        let fs = MemFileSystem::new();
+        let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
+        write_with_meta(&fs, "a.psd");
+
+        let preview = build_preview(
+            &[RenameRequest::new(p("a.psd"), literal("b", "psd"))],
+            &FillMode::Skip,
+            &fs,
+        )
+        .unwrap();
+        let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
+
+        assert!(
+            outcome.group_id.is_none(),
+            "single-op batch should not allocate a group"
+        );
+        assert!(outcome.history_warnings.is_empty());
+
+        let entries = history.list(usize::MAX).unwrap();
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert_eq!(entry.op.kind(), OpKind::Rename);
+        assert!(entry.group_id.is_none());
+        match &entry.op {
+            Operation::Rename { from, to, rule_id } => {
+                assert_eq!(from.as_str(), "a.psd");
+                assert_eq!(to.as_str(), "b.psd");
+                assert!(rule_id.is_none());
+            }
+            other => panic!("unexpected op kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bulk_rename_shares_a_single_auto_generated_group_id() {
+        let fs = MemFileSystem::new();
+        let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
+        write_with_meta(&fs, "a.psd");
+        write_with_meta(&fs, "b.psd");
+
+        let preview = build_preview(
+            &[
+                RenameRequest::new(p("a.psd"), literal("aa", "psd")),
+                RenameRequest::new(p("b.psd"), literal("bb", "psd")),
+            ],
+            &FillMode::Skip,
+            &fs,
+        )
+        .unwrap();
+        let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
+
+        let group = outcome
+            .group_id
+            .expect("bulk rename should allocate a group");
+        let entries = history.list(usize::MAX).unwrap();
+        assert_eq!(entries.len(), 2);
+        for entry in &entries {
+            assert_eq!(entry.group_id.as_deref(), Some(group.as_str()));
+        }
+    }
+
+    #[test]
+    fn per_op_group_id_overrides_batch_group() {
+        let fs = MemFileSystem::new();
+        let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
+        write_with_meta(&fs, "a.psd");
+        write_with_meta(&fs, "b.psd");
+
+        // Caller (e.g. `core::sequence`) pre-set both ops' group_id to
+        // "frame-batch-7"; the apply must respect that and not overwrite
+        // it with a fresh batch group.
+        let preview = build_preview(
+            &[
+                RenameRequest::new(p("a.psd"), literal("aa", "psd")).with_group_id("frame-batch-7"),
+                RenameRequest::new(p("b.psd"), literal("bb", "psd")).with_group_id("frame-batch-7"),
+            ],
+            &FillMode::Skip,
+            &fs,
+        )
+        .unwrap();
+        Rename::new(&fs, &index, &history).apply(&preview).unwrap();
+
+        let entries = history.list(usize::MAX).unwrap();
+        assert_eq!(entries.len(), 2);
+        for entry in &entries {
+            assert_eq!(entry.group_id.as_deref(), Some("frame-batch-7"));
+        }
+    }
+
+    #[test]
+    fn rule_id_propagates_into_history_entry() {
+        let fs = MemFileSystem::new();
+        let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
+        write_with_meta(&fs, "a.psd");
+
+        let preview = build_preview(
+            &[RenameRequest::new(p("a.psd"), literal("b", "psd")).with_rule_id("shot-assets-v1")],
+            &FillMode::Skip,
+            &fs,
+        )
+        .unwrap();
+        Rename::new(&fs, &index, &history).apply(&preview).unwrap();
+
+        let head = history.head().unwrap().expect("head should be the rename");
+        match head.op {
+            Operation::Rename { rule_id, .. } => {
+                assert_eq!(rule_id.as_deref(), Some("shot-assets-v1"));
+            }
+            other => panic!("unexpected op: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn history_failure_records_warning_but_keeps_fs_change() {
+        let fs = MemFileSystem::new();
+        let index = SqliteIndex::open_in_memory().unwrap();
+        let history = AlwaysFailingStore;
+        write_with_meta(&fs, "a.psd");
+
+        let preview = build_preview(
+            &[RenameRequest::new(p("a.psd"), literal("b", "psd"))],
+            &FillMode::Skip,
+            &fs,
+        )
+        .unwrap();
+        let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
+
+        // FS landed.
+        assert_eq!(fs.read(&p("b.psd")).unwrap(), b"a.psd");
+        // History failure surfaced as a warning, not an error.
+        assert_eq!(outcome.history_warnings.len(), 1);
+        assert_eq!(outcome.history_warnings[0].from.as_str(), "a.psd");
+        assert_eq!(outcome.history_warnings[0].to.as_str(), "b.psd");
+    }
+
+    #[test]
+    fn history_undo_returns_inverse_pointing_back_to_origin() {
+        let fs = MemFileSystem::new();
+        let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
+        write_with_meta(&fs, "a.psd");
+
+        let preview = build_preview(
+            &[RenameRequest::new(p("a.psd"), literal("b", "psd"))],
+            &FillMode::Skip,
+            &fs,
+        )
+        .unwrap();
+        Rename::new(&fs, &index, &history).apply(&preview).unwrap();
+
+        // The inverse operation reverses the rename. Replaying it is
+        // the responsibility of the undo dispatcher (lands with the
+        // CLI command); here we only verify the inverse payload.
+        let entry = history.undo().unwrap();
+        match entry.inverse {
+            Operation::Rename { from, to, .. } => {
+                assert_eq!(from.as_str(), "b.psd");
+                assert_eq!(to.as_str(), "a.psd");
+            }
+            other => panic!("unexpected inverse: {other:?}"),
+        }
     }
 
     proptest! {
@@ -645,6 +921,7 @@ mod tests {
             }
             let fs = FaultyFileSystem::new(inner);
             let index = SqliteIndex::open_in_memory().unwrap();
+        let history = SqliteStore::open_in_memory().unwrap();
 
             fs.fail_at(FaultOp::Rename, fault_call, FaultKind::PermissionDenied);
 
@@ -657,7 +934,7 @@ mod tests {
                 })
                 .collect();
             let preview = build_preview(&reqs, &FillMode::Skip, &fs).unwrap();
-            let result = Rename::new(&fs, &index).apply(&preview);
+            let result = Rename::new(&fs, &index, &history).apply(&preview);
 
             // Tally: how many files at original vs. renamed targets?
             let origs_present = names.iter().filter(|n| fs.exists(&p(n))).count();

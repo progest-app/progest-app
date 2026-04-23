@@ -15,7 +15,8 @@ pub mod ops;
 pub mod preview;
 
 pub use apply::{
-    AppliedOp, ApplyError, ApplyOutcome, IndexWarning, Rename, STAGING_PREFIX, StageStep,
+    AppliedOp, ApplyError, ApplyOutcome, HistoryWarning, IndexWarning, Rename, STAGING_PREFIX,
+    StageStep,
 };
 pub use ops::{Conflict, ConflictKind, RenameOp};
 pub use preview::{PreviewError, RenamePreview, RenameRequest, build_preview};
