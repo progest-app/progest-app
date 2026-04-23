@@ -248,12 +248,52 @@ rename preview/apply:
 - 欠番: デフォルト詰めない（設定可）
 - 複数人の同時採番衝突時: 両採用リネーム提案（lint）
 
+### 3.5.5 機械的命名整理
+
+AI に依らず決定的な transform で命名候補を生成する機能。命名提案の基盤であり、AI 提案（§3.6）は opt-in の別経路。`suggested_names[]` の機械的充填と CLI `progest clean` の両方を駆動する。
+
+パイプライン（固定正規順序、各 stage は独立に on/off 可）:
+
+1. `remove_copy_suffix` — OS デフォルトの複製 suffix を stem 末尾で検出・除去。対象は `foo (2)` / `foo - Copy` / `foo - Copy (2)` / `foo のコピー` / `foo のコピー 2` の 3 系統。`v01` のようなバージョン token は非対象
+2. `remove_cjk` — ひらがな・カタカナ・漢字を削除。連続ランごとに 1 穴（placeholder）を残し、位置情報を保持
+3. `convert_case` — snake / kebab / camel / pascal に正規化。PascalCase 境界を含む完全な case 変換（`heck` crate）。穴は literal 扱いせず、ASCII 区間のみを対象
+
+有効化:
+
+- `.progest/project.toml [cleanup]` に既定値を宣言（team 共有）
+- `convert_case` のみデフォルト on（opt-out）、`remove_copy_suffix` / `remove_cjk` はデフォルト off（opt-in）
+- UI ダイアログ / CLI フラグで毎回上書き可能（per-action override）
+
+候補のデータモデル:
+
+- 候補は「literal 区間と穴の混在列」として保持し、fill-mode で解消するまで `String` に flatten しない
+- ディスクに書き出す文字列へ穴が残ることは禁止（後述 fill-mode で必ず解消）
+
+fill-mode（`progest clean` / rename apply 共通）:
+
+| mode | 挙動 |
+| --- | --- |
+| `prompt` | 穴を 1 つずつ対話で埋める（TTY 既定） |
+| `placeholder[:STR]` | 全穴を固定文字列で埋める（既定 STR=`untitled`） |
+| `skip` | 穴が 1 つでも残る候補は rename 対象外（非 TTY 既定） |
+
+text 出力時の穴表記:
+
+- 視覚的に明らかな sentinel（例 `⟨cjk-1⟩`）を用い、`{}` は使わない（FS に有効な文字を含めると誤 rename / シェル展開事故の原因）
+- `--format json` は構造化された `holes[]` フィールドを返す
+
+lint `suggested_names[]`:
+
+- 違反検出時、`[cleanup]` 既定値でパイプラインを走らせ候補を生成（デフォルト: case 変換のみ）
+- 穴が残る場合は JSON に構造のまま保持、text 出力では sentinel 表記
+
 ### 3.6 AI命名支援
 
 形態: BYOK（OpenAI / Anthropic 互換 API）
 
 - API キー: OS keychain（keyring crate）に保存、プレーンテキスト保存禁止
-- ユーザー明示起動のみ（自動化しない）
+- ユーザー明示起動のみ（自動化しない、opt-in ボタン）
+- 機械的命名整理（§3.5.5）がデフォルト経路、AI は opt-in で別途発火
 - 提案対象: テンプレート内の `{desc}` 等自由スロット
 - コンテキスト: 規則定義 + 周囲ファイル名 + 既存タグ + （オプション）プロジェクト用語集
 - notes 本文は明示的許可なしに送信しない（プライバシー）
