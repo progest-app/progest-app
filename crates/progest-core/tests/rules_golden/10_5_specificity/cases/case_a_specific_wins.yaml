@@ -1,0 +1,5 @@
+name: "Case A — shots-specific wins over general by literal-segment count"
+path: "assets/shots/ch010/ch010_001_bg_v03.psd"
+expected:
+  winner_rule_id: "shots-specific"
+  violations: []

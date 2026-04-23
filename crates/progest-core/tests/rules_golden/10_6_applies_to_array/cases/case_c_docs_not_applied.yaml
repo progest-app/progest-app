@@ -1,0 +1,4 @@
+name: "Case C — docs/ is outside both applies_to patterns"
+path: "docs/memo.md"
+expected:
+  violations: []

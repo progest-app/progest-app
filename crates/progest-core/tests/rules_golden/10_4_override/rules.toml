@@ -1,0 +1,8 @@
+schema_version = 1
+
+[[rules]]
+id = "project-default"
+kind = "constraint"
+applies_to = "./**"
+mode = "warn"
+casing = "snake"

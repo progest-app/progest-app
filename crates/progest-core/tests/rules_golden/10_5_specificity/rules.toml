@@ -1,0 +1,15 @@
+schema_version = 1
+
+[[rules]]
+id = "general"
+kind = "template"
+applies_to = "./assets/**"
+mode = "warn"
+template = "{desc:snake}_v{version:02d}.{ext}"
+
+[[rules]]
+id = "shots-specific"
+kind = "template"
+applies_to = "./assets/shots/**/*.psd"
+mode = "warn"
+template = "{prefix}_{seq:03d}_{desc:snake}_v{version:02d}.{ext}"

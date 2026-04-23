@@ -1,0 +1,8 @@
+name: "Case B — inside references/, Japanese basename violates no_cjk"
+path: "references/日本語メモ.pdf"
+expected:
+  violations:
+    - rule_id: "no-japanese"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "NoCjk"

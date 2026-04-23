@@ -1,0 +1,8 @@
+schema_version = 1
+
+[[rules]]
+id = "no-japanese"
+kind = "constraint"
+applies_to = ["./assets/**", "./references/**"]
+mode = "warn"
+charset = "no_cjk"

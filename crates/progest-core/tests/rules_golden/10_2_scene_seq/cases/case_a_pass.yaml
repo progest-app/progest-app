@@ -1,0 +1,7 @@
+name: "Case A — field:scene expands to 020 and literal matches"
+path: "assets/scenes/ch010/sc020_007_forest-night.tif"
+custom:
+  scene: 20
+expected:
+  winner_rule_id: "scene-seq"
+  violations: []

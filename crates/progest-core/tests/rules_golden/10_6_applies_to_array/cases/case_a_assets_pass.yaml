@@ -1,0 +1,4 @@
+name: "Case A — inside assets/, ASCII basename passes no-japanese"
+path: "assets/shots/ch010/forest_night.psd"
+expected:
+  violations: []

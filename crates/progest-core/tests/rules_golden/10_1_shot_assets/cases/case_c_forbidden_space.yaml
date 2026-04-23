@@ -1,0 +1,12 @@
+name: "Case C — forbidden space plus template mismatch"
+path: "assets/shots/ch010/ch010 001 bg forest v03.psd"
+expected:
+  winner_rule_id: "shot-assets-v1"
+  violations:
+    - rule_id: "shot-assets-v1"
+      kind: "template"
+      severity: "warn"
+    - rule_id: "shot-charset"
+      kind: "constraint"
+      severity: "strict"
+      reason_contains: "forbidden character ` `"

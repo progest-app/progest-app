@@ -1,0 +1,22 @@
+name: "Case B — outside references/ no project-default applies (full-replace override removed it)"
+# Spec §7.2: same id in a child dirmeta performs a *full replace* of the
+# parent rule. Because the child's normalized applies_to is
+# `references/**`, files under `assets/shots/` have no project-default
+# rule to satisfy — the project-wide definition was shadowed in its
+# entirety. docs/NAMING_RULES_DSL.md §10.4 Case B should reflect this.
+path: "assets/shots/ch010/ForestNight.psd"
+dirmeta_layers:
+  - base_dir: "references"
+    rules_toml: |
+      schema_version = 1
+
+      [[rules]]
+      id = "project-default"
+      kind = "constraint"
+      applies_to = "./**"
+      mode = "warn"
+      casing = "any"
+      charset = "utf8"
+      override = true
+expected:
+  violations: []

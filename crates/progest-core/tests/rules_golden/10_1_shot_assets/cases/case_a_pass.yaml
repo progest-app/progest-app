@@ -1,0 +1,5 @@
+name: "Case A — pass"
+path: "assets/shots/ch010/ch010_001_bg_forest_v03.psd"
+expected:
+  winner_rule_id: "shot-assets-v1"
+  violations: []

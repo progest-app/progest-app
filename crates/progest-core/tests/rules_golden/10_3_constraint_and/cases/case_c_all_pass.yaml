@@ -1,0 +1,4 @@
+name: "Case C — both rules pass"
+path: "assets/short.psd"
+expected:
+  violations: []

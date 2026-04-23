@@ -1,0 +1,13 @@
+schema_version = 1
+
+[[rules]]
+id = "ascii-only"
+kind = "constraint"
+applies_to = "./**"
+charset = "ascii"
+
+[[rules]]
+id = "length-cap"
+kind = "constraint"
+applies_to = "./**"
+max_length = 40

@@ -1,0 +1,16 @@
+schema_version = 1
+
+[[rules]]
+id = "shot-assets-v1"
+kind = "template"
+applies_to = "./assets/shots/**/*.psd"
+mode = "warn"
+template = "{prefix}_{seq:03d}_{desc:snake}_v{version:02d}.{ext}"
+
+[[rules]]
+id = "shot-charset"
+kind = "constraint"
+applies_to = "./assets/shots/**"
+mode = "strict"
+charset = "ascii"
+forbidden_chars = [" ", "　"]

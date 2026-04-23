@@ -1,0 +1,8 @@
+name: "Case B — template mismatch (missing seq segment)"
+path: "assets/shots/ch010/ch010_bg_forest_v03.psd"
+expected:
+  winner_rule_id: "shot-assets-v1"
+  violations:
+    - rule_id: "shot-assets-v1"
+      kind: "template"
+      severity: "warn"

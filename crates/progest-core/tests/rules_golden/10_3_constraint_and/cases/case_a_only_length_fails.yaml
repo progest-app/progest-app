@@ -1,0 +1,8 @@
+name: "Case A — length-cap fails while ascii-only passes (AND)"
+path: "assets/shots/ch010/very_long_basename_that_exceeds_forty_chars.psd"
+expected:
+  violations:
+    - rule_id: "length-cap"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "exceeds max 40"

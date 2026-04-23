@@ -1,0 +1,10 @@
+name: "Case B — field:scene = 20 but basename has 999 → template mismatch"
+path: "assets/scenes/ch010/sc999_007_forest-night.tif"
+custom:
+  scene: 20
+expected:
+  winner_rule_id: "scene-seq"
+  violations:
+    - rule_id: "scene-seq"
+      kind: "template"
+      severity: "warn"

@@ -1,0 +1,10 @@
+name: "Case B — both rules fail independently"
+path: "assets/日本語_this_long_basename_clearly_exceeds_forty_chars.psd"
+expected:
+  violations:
+    - rule_id: "ascii-only"
+      kind: "constraint"
+      severity: "warn"
+    - rule_id: "length-cap"
+      kind: "constraint"
+      severity: "warn"

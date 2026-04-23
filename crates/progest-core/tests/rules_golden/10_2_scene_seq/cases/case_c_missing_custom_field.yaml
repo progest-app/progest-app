@@ -1,0 +1,11 @@
+name: "Case C — custom.scene missing → evaluation_error"
+path: "assets/scenes/ch010/sc020_007_forest-night.tif"
+custom: {}
+created_at: "2026-04-20T10:00:00Z"
+expected:
+  winner_rule_id: "scene-seq"
+  violations:
+    - rule_id: "scene-seq"
+      kind: "template"
+      severity: "evaluation_error"
+      reason_contains: "custom.scene is missing"

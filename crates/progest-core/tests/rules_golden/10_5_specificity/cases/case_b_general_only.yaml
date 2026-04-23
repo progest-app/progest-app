@@ -1,0 +1,5 @@
+name: "Case B — outside shots/ only `general` applies"
+path: "assets/misc/some_desc_v01.png"
+expected:
+  winner_rule_id: "general"
+  violations: []

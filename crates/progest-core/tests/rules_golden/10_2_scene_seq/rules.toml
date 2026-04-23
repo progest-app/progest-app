@@ -1,0 +1,8 @@
+schema_version = 1
+
+[[rules]]
+id = "scene-seq"
+kind = "template"
+applies_to = "./assets/scenes/**/*.tif"
+mode = "warn"
+template = "sc{field:scene:03d}_{seq@scene:03d}_{desc:slug}.{ext}"
