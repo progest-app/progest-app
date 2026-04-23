@@ -10,7 +10,7 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-23
+最終更新: 2026-04-24
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
@@ -20,7 +20,8 @@
   - [x] `core::rules` — loader / applies_to / template / constraint / inheritance / evaluate + trace、§10 golden + Codex 指摘 5 件のホットフィックス + regression golden（feat/m2-core-rules）
   - [x] `core::accepts` — builtin alias catalog / project alias loader / `[accepts]` 抽出 / effective_accepts 計算 / placement lint、7 シナリオ × 12 golden、`docs/ACCEPTS_ALIASES.md` 初版（feat/m2-core-accepts）
   - [x] `core::naming` — pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、`NameCandidate`（literal + hole）/ `Hole{origin,kind,pos}` / sentinel `⟨cjk-N⟩`、fill-mode `skip`/`placeholder[:STR]`（`prompt` は `core::rename` 着手時に実装）、`[cleanup]` loader、`core::rules::template` の private case fn 移管（heck 化）、`suggest::fill_suggested_names`、CLI `progest clean`（preview）、core integration + cli smoke test（feat/m2-core-naming）
-  - [ ] `core::history` / `core::rename`
+  - [x] `core::history` — SQLite 1 テーブル `entries(id, ts, op_kind, payload_json, inverse_json, consumed, group_id)` + `meta(key, value)` pointer、5 op kind（rename / tag_add / tag_remove / meta_edit / import）、pure `invert()` で inverse 生成、`append` が redo branch を erase、undo/redo で `consumed` フラグを反転、retention 50 固定で pointer reconciliation 込み、`.progest/local/history.db`（feat/m2-core-history）
+  - [ ] `core::rename`
   - [ ] CLI `lint` / `rename` / `undo` / `redo`
   - [ ] `core::rules` follow-up（suggested_names / §6 `{seq}` 採番 / trace の `NotApplicable` 拡張 / `match_basename` の Regex::new キャッシュ化 / §4.3 `{{`・§4.4 mixed spec 等の golden 追加）— 別 issue で管理
   - [ ] `core::accepts` follow-up（import ランキング API / `suggested_destinations` 充填 / `[extension_compounds]` loader）— 別 issue で管理
@@ -170,7 +171,7 @@ project-root/
 │   ├── thumbs/              # gitignore
 │   ├── index.db             # gitignore
 │   └── local/               # gitignore
-│       ├── history.json
+│       ├── history.db
 │       ├── logs/
 │       └── pending/
 ├── .gitignore               # init 時自動生成 / 追記
@@ -246,15 +247,24 @@ CREATE TABLE violations (
 );
 CREATE INDEX idx_violations_category ON violations(category);
 
-CREATE TABLE history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  applied_at TEXT NOT NULL,
-  op_kind TEXT NOT NULL,      -- rename | tag | meta_edit
-  operations TEXT NOT NULL,   -- JSON array (forward operations)
-  inverse TEXT NOT NULL,      -- JSON array (operations for undo)
-  undone INTEGER NOT NULL DEFAULT 0
+-- core::history lives in its own SQLite database at
+-- `.progest/local/history.db` (machine-local, gitignored). Retention
+-- is a hard 50 rows, enforced on every append.
+CREATE TABLE entries (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts            TEXT    NOT NULL,
+  op_kind       TEXT    NOT NULL,  -- rename | tag_add | tag_remove | meta_edit | import
+  payload_json  TEXT    NOT NULL,  -- forward Operation
+  inverse_json  TEXT    NOT NULL,  -- precomputed inverse Operation
+  consumed      INTEGER NOT NULL DEFAULT 0,
+  group_id      TEXT
 );
-CREATE INDEX idx_history_applied_at ON history(applied_at);
+CREATE INDEX idx_entries_ts       ON entries(ts);
+CREATE INDEX idx_entries_consumed ON entries(consumed);
+CREATE INDEX idx_entries_group    ON entries(group_id);
+
+-- `pointer` holds the id of the most recently applied, not-undone entry.
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ```
 
 ---
@@ -307,7 +317,7 @@ DSL の正規仕様は [NAMING_RULES_DSL.md](./NAMING_RULES_DSL.md)（parser / e
 - `core::accepts` — `.dirmeta.toml` の `[accepts]` パース、`schema.toml` のエイリアス解決、effective 計算（opt-in 継承）、placement 違反検出、インポート先ランキング算出
 - 組み込みエイリアス（`:image`, `:video`, `:audio`, `:raw`, `:3d`, `:project`, `:text`）の構成拡張子を確定し `docs/` に記載
 - `core::naming` — AI 非依存の機械的命名整理。pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、NameCandidate（literal + 穴）モデル、fill-mode（`prompt` / `placeholder[:STR]` / `skip`）、`.progest/project.toml [cleanup]` loader、`core::rules::template` の private case fn を移管（`heck` crate 差し替え、PascalCase→snake_case 対応）、violation.suggested_names[] の機械的充填 — **landed**（feat/m2-core-naming、`prompt` モードは `core::rename` 着手時に充填）
-- `core::history` — 操作ログ（rename / tag / meta_edit / import）、inverse 生成、undo/redo
+- `core::history` — 操作ログ（rename / tag / meta_edit / import）、inverse 生成、undo/redo — **landed**（feat/m2-core-history、SQLite backend、retention 50、rename/CLI 配線は `core::rename` 合流時）
 - `core::rename` — preview、apply（原子トランザクション）、history 連携、naming の NameCandidate を入力に受ける
 - CLI: `lint`（placement カテゴリ統合）, `rename --preview|--apply`, `undo`, `redo`, `clean`（`progest clean <path> [--case snake|kebab|camel|pascal] [--strip-cjk] [--strip-suffix] [--fill-mode prompt|placeholder[:STR]|skip] [--apply]`）
 - ゴールデンテスト（naming / placement 評価結果を YAML に固定）

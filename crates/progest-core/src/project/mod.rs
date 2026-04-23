@@ -23,7 +23,7 @@ pub mod root;
 
 pub use document::{ProjectDocument, ProjectError, ProjectId};
 pub use layout::{
-    DOT_DIR, GITIGNORE_ENTRIES, IGNORE_TEMPLATE, INDEX_DB_FILENAME, LOCAL_DIR,
+    DOT_DIR, GITIGNORE_ENTRIES, HISTORY_DB_FILENAME, IGNORE_TEMPLATE, INDEX_DB_FILENAME, LOCAL_DIR,
     PROJECT_TOML_FILENAME, THUMBS_DIR, USER_IGNORE_FILENAME, initialize,
 };
 pub use root::ProjectRoot;

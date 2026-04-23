@@ -377,3 +377,52 @@
 - 現状フラグ: `--case`/`--strip-cjk`/`--strip-suffix` は config を上書き（on 方向のみ、off への override は project.toml 編集）、`--fill-mode skip|placeholder` / `--placeholder <STR>`（デフォルト `_`）、`--format text|json`、末尾の `[PATH]...` は接頭辞フィルタ
 - JSON 出力は `candidates[].{path, original, sentinel, resolved?, skipped_reason?, holes[]?, changed}` + `summary.{scanned, would_rename, skipped_due_to_holes, unchanged}`。clean_smoke テストで固定
 - `.gitignore` のような project-init 生成物も walk に乗る（`.progest/ignore` で明示除外されていない限り）。smoke テストでは特定候補のみ assert して、summary は下限チェックに留めた
+
+---
+
+## 14. core::history（undo/redo SQLite）
+
+### `Operation::Import` の inverse は **別 op kind ではなく同じ op + `is_inverse: true`**
+- 当初案は `ImportUndo`/`Delete` を別 variant にする案だったが、undoer（FS 層）が「inverse なのか forward なのか」を判定できれば 1 variant で済むので、フラグ方式を採った
+- `invert(Import { is_inverse: false })` → `Import { is_inverse: true }`、`invert(Import { is_inverse: true })` → `Import { is_inverse: false }` で double-inverse 恒等が保たれる
+- 新規 op を足す時は `double_inverse_is_identity_for_all_variants` テストに追加するのを忘れない
+- 場所: `crates/progest-core/src/history/inverse.rs::invert`
+
+### `inverse_json` は **append 時に synthesize してそのまま保存**
+- `invert` 関数は純粋なので毎回 undo 時に再計算しても同じ結果が出るはずだが、将来 inverse の仕様が変わった時に「古いエントリがどういう前提で書かれたか」を追えるよう、append 時に算出したものを pin する
+- 読み取り側は payload と inverse 両方を deserialize する。`debug_assert_eq!(op.kind(), op_kind)` で wire の op_kind と payload discriminant が一致することを確かめておく（migration バグの早期検出）
+- 場所: `crates/progest-core/src/history/store.rs::Store::append` / `row_to_entry`
+
+### redo branch は append 時に erase、pointer より id が大きい consumed 行を削除
+- 「undo を 2 回してから新しい op を append」した瞬間、redo スタック（= consumed=1 かつ id > pointer）はその場で削除するのが UI コンセンサス
+- pointer が None（全 undo 済）の場合は `WHERE consumed = 1` だけで良い — この分岐を忘れると「pointer なし状態で redo 行が残って append 後に redo できてしまう」事故に繋がる
+- 場所: `crates/progest-core/src/history/store.rs::Store::append`
+
+### retention は tail 削除、pointer が evict されたら最新 non-consumed に reconcile
+- `DELETE FROM entries WHERE id < <cutoff>` で物理削除する構造上、pointer が指している row が消える可能性がある（大量 undo の後に append が走って古い行を押し出すケース）
+- 削除後に `SELECT EXISTS(SELECT 1 FROM entries WHERE id = pointer AND consumed = 0)` で確認、不在なら `SELECT MAX(id) WHERE consumed=0` に付け替える
+- テスト: `retention_reconciles_pointer_when_head_gets_evicted`
+- 場所: `crates/progest-core/src/history/store.rs::enforce_retention`
+
+### `MetaDocument` を payload に載せる時は `Box<MetaDocument>` で包む
+- `Operation` enum の各 variant サイズは、最大 variant（MetaEdit の before/after 両方 inline）に揃う
+- `MetaDocument` はそれなりに大きい（custom: Table + tags + timestamps...）ので、Box 越しに持つと他の variant（Rename とか TagAdd）が軽量なまま
+- clippy `large_enum_variant` はワーク周辺で常に仕掛けがあるので、将来 op を足す時もこの原則を維持する
+- 場所: `crates/progest-core/src/history/types.rs::Operation::MetaEdit`
+
+### history は「記録だけ」、apply 原子性は呼び出し側の責務
+- `append` は単に SQLite トランザクションを張って 1 行挿入するだけ。FS / .meta / index の三つ巴整合性は `core::rename` / `core::import` が自前で確保
+- これを history 側に寄せる（「history が transaction を主導する」）案は初期にあったが、テストのしづらさ + 複数 DB にまたがるトランザクション不可能性（sqlite 間は XA 不可）で見送った
+- その代わり `group_id` があるので、bulk 操作で途中失敗した場合は呼び出し側が「該当 group_id の entries を list → undo を N 回叩く」で rollback 風に振る舞える
+- 場所: module doc / `crates/progest-core/src/history/mod.rs`
+
+### `.progest/local/history.db` は machine-local、gitignore 対象
+- undo 履歴は per-workstation（他人が pull しても undo できるべきではない）なので、`.progest/local/` 以下に配置
+- `GITIGNORE_ENTRIES` に `.progest/local/` が既に入っているので新たな追記は不要
+- ただし `ProjectRoot::history_db()` は `dot_dir().join(LOCAL_DIR).join(HISTORY_DB_FILENAME)` を返すので、callers が local dir を作らずに open すると SQLite が親ディレクトリ不在で失敗する。`progest init` が `local/` を create_dir_all するので init 後なら OK
+- 場所: `crates/progest-core/src/project/layout.rs`, `root.rs::history_db`
+
+### `usize` → i64 / u32 cast は `try_from(...).unwrap_or(MAX)` で
+- `limit as i64` / `RETENTION_LIMIT as u32` 系は clippy `cast_possible_wrap` / `cast_possible_truncation` で弾かれる
+- これまでのテストで学んだ pattern: `i64::try_from(limit).unwrap_or(i64::MAX)` — 実運用で usize::MAX を入れることは無いので unwrap_or で十分、それ以外も同じ手口
+- 場所: `crates/progest-core/src/history/store.rs::Store::list`
