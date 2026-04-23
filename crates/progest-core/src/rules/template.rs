@@ -1049,85 +1049,21 @@ fn apply_numeric_specs(
 }
 
 fn apply_string_specs(input: &str, specs: &[FormatSpec]) -> String {
+    use crate::naming::case::{RulesCase, rules_format_spec};
     let mut s = input.to_owned();
     for spec in specs {
         s = match spec {
-            FormatSpec::Lower => s.to_lowercase(),
-            FormatSpec::Upper => s.to_uppercase(),
-            FormatSpec::Snake => to_snake(&s),
-            FormatSpec::Kebab => to_kebab(&s),
-            FormatSpec::Camel => to_camel(&s),
-            FormatSpec::Pascal => to_pascal(&s),
-            FormatSpec::Slug => to_slug(&s),
+            FormatSpec::Lower => rules_format_spec(&s, RulesCase::Lower),
+            FormatSpec::Upper => rules_format_spec(&s, RulesCase::Upper),
+            FormatSpec::Snake => rules_format_spec(&s, RulesCase::Snake),
+            FormatSpec::Kebab => rules_format_spec(&s, RulesCase::Kebab),
+            FormatSpec::Camel => rules_format_spec(&s, RulesCase::Camel),
+            FormatSpec::Pascal => rules_format_spec(&s, RulesCase::Pascal),
+            FormatSpec::Slug => rules_format_spec(&s, RulesCase::Slug),
             FormatSpec::ZeroPadded(_) | FormatSpec::PlainInteger => s,
         };
     }
     s
-}
-
-fn word_chunks(input: &str) -> Vec<String> {
-    // Split on anything that isn't alphanumeric, drop empties.
-    input
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-fn to_snake(s: &str) -> String {
-    word_chunks(s)
-        .into_iter()
-        .map(|w| w.to_lowercase())
-        .collect::<Vec<_>>()
-        .join("_")
-}
-
-fn to_kebab(s: &str) -> String {
-    word_chunks(s)
-        .into_iter()
-        .map(|w| w.to_lowercase())
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
-fn to_slug(s: &str) -> String {
-    let mut out = String::new();
-    for c in s.chars() {
-        if c.is_alphanumeric() {
-            out.extend(c.to_lowercase());
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    out.trim_matches('-').to_owned()
-}
-
-fn to_camel(s: &str) -> String {
-    let mut out = String::new();
-    for (idx, word) in word_chunks(s).into_iter().enumerate() {
-        if idx == 0 {
-            out.push_str(&word.to_lowercase());
-        } else {
-            let mut chars = word.chars();
-            if let Some(first) = chars.next() {
-                out.extend(first.to_uppercase());
-                out.push_str(&chars.collect::<String>().to_lowercase());
-            }
-        }
-    }
-    out
-}
-
-fn to_pascal(s: &str) -> String {
-    let mut out = String::new();
-    for word in word_chunks(s) {
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            out.extend(first.to_uppercase());
-            out.push_str(&chars.collect::<String>().to_lowercase());
-        }
-    }
-    out
 }
 
 fn format_datetime(dt: &toml::value::Datetime, fmt: &DateFormat) -> String {
@@ -1609,25 +1545,5 @@ mod tests {
                 .unwrap()
                 .matched
         );
-    }
-
-    // --- Utility unit tests -----------------------------------------------
-
-    #[test]
-    fn to_slug_maps_symbols_to_hyphens() {
-        assert_eq!(to_slug("Ch 10 / Sc 20"), "ch-10-sc-20");
-        assert_eq!(to_slug("  hello  world  "), "hello-world");
-    }
-
-    #[test]
-    fn to_snake_and_kebab_canonicalize() {
-        assert_eq!(to_snake("Forest Night"), "forest_night");
-        assert_eq!(to_kebab("Forest Night"), "forest-night");
-    }
-
-    #[test]
-    fn to_camel_and_pascal_canonicalize() {
-        assert_eq!(to_camel("forest night"), "forestNight");
-        assert_eq!(to_pascal("forest night"), "ForestNight");
     }
 }
