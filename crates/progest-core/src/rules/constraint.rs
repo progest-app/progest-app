@@ -286,8 +286,12 @@ pub fn evaluate_constraint(
         });
     }
 
-    // required_prefix / required_suffix
-    if !c.required_prefix.is_empty() && !basename.starts_with(&c.required_prefix) {
+    // required_prefix / required_suffix (§5.2): both apply to the stem,
+    // not the full basename. Matching against the basename would let a
+    // configuration like `required_prefix = "foo."` leak across the
+    // stem/ext boundary and accidentally pass every file whose
+    // extension happens to start with the configured chars.
+    if !c.required_prefix.is_empty() && !stem.starts_with(&c.required_prefix) {
         failures.push(ConstraintFailure::MissingPrefix {
             required: c.required_prefix.clone(),
         });
@@ -745,6 +749,33 @@ mod tests {
         assert!(
             f.iter()
                 .any(|v| matches!(v, ConstraintFailure::MissingPrefix { .. }))
+        );
+    }
+
+    #[test]
+    fn required_prefix_applies_to_stem_not_extension() {
+        // `required_prefix = "foo."` used to leak across the stem/ext
+        // boundary: `foo.psd` had `basename.starts_with("foo.")` = true
+        // so this passed even though the stem is just `foo`. Now that
+        // the check runs on the stem, the trailing dot is absent and
+        // the rule fails correctly.
+        let c = compile_constraint(&raw(
+            Charset::Utf8,
+            Casing::Any,
+            vec![],
+            vec![],
+            vec![],
+            255,
+            1,
+            "foo.",
+            "",
+        ))
+        .unwrap();
+        let f = evaluate_constraint(&c, "foo.psd", &[]);
+        assert!(
+            f.iter()
+                .any(|v| matches!(v, ConstraintFailure::MissingPrefix { .. })),
+            "expected MissingPrefix failure, got {f:?}",
         );
     }
 
