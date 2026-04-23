@@ -12,9 +12,11 @@
 //! matcher, template parser, constraint evaluator, inheritance
 //! resolver, and the top-level `evaluate` entry point.
 
+pub mod applies_to;
 pub mod loader;
 pub mod types;
 
+pub use applies_to::{AppliesToError, CompiledAppliesTo, CompiledPattern, compute_specificity};
 pub use loader::{
     AppliesToRaw, LoadError, LoadWarning, RULES_SCHEMA_VERSION, RawConstraintBody, RawRule,
     RawRuleBody, RawTemplateBody, RulesDocument, load_document,
