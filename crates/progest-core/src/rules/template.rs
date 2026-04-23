@@ -197,6 +197,8 @@ pub enum TemplateError {
     NumericSpecOnString { name: String, spec: String },
     #[error("string specifier `{spec}` is invalid on numeric placeholder `{{{name}}}`")]
     StringSpecOnNumeric { name: String, spec: String },
+    #[error("`{{{name}}}` mixes numeric and string format specifiers; pick one kind (spec §4.4)")]
+    MixedDynamicSpecs { name: String },
     #[error("duplicate format specifier `{spec}` on `{{{name}}}`")]
     DuplicateSpec { name: String, spec: String },
     #[error("placeholder `{{{name}}}` requires a field name after `field:`")]
@@ -299,6 +301,23 @@ pub fn compile(raw: &str) -> Result<CompiledTemplate, TemplateError> {
                         }));
                     }
                     Placeholder::Dynamic { source, specs } => {
+                        // Spec §4.7: `{field:<name>}` without a *string*
+                        // spec (i.e. no spec at all, or numeric-only)
+                        // counts toward the single-open-ended budget.
+                        // `{date:...}` always produces a fixed literal
+                        // string and is never open-ended.
+                        if matches!(source, DynamicSource::CustomField(_))
+                            && !specs.iter().any(|s| s.is_string())
+                        {
+                            open_ended_count += 1;
+                            if open_ended_count > 1 {
+                                let label = match &source {
+                                    DynamicSource::CustomField(n) => format!("field:{n}"),
+                                    DynamicSource::Date(_) => "date".into(),
+                                };
+                                return Err(TemplateError::MultipleOpenEnded(label));
+                            }
+                        }
                         atoms.push(Atom::Dynamic(DynamicAtom { source, specs }));
                     }
                 }
@@ -473,6 +492,17 @@ fn parse_field(
         return Err(TemplateError::InvalidFieldName(field_name.to_owned()));
     }
     let specs = parse_spec_chain(rest, raw_name)?;
+    // Spec §4.4: a single placeholder's spec chain must be homogeneous —
+    // either all numeric or all string. Mixing means the render path is
+    // ambiguous (what is `{field:scene:snake:03d}` supposed to produce
+    // from an int? from a string?), so we reject it at load time.
+    let has_num = specs.iter().any(|s| s.is_numeric());
+    let has_str = specs.iter().any(|s| s.is_string());
+    if has_num && has_str {
+        return Err(TemplateError::MixedDynamicSpecs {
+            name: raw_name.to_owned(),
+        });
+    }
     Ok(Placeholder::Dynamic {
         source: DynamicSource::CustomField(field_name.to_owned()),
         specs,
@@ -871,8 +901,10 @@ fn render_custom_field(
     specs: &[FormatSpec],
 ) -> Result<String, EvaluationError> {
     let want_numeric = specs.iter().any(|s| s.is_numeric());
+    let want_string = specs.iter().any(|s| s.is_string());
 
     // When any numeric spec is present, the field must carry an integer.
+    // Spec §4.6: "numeric spec + string value → evaluation_error".
     if want_numeric {
         let int = value
             .as_integer()
@@ -884,10 +916,21 @@ fn render_custom_field(
         return apply_numeric_specs(name, int, specs);
     }
 
-    // String specs apply to strings. Other TOML scalars (int, bool,
-    // float, datetime) are rendered via their Display form and then
-    // transformed by specs; this keeps simple cases (`scene = 20` as
-    // a literal "20") working even without explicit `:d`.
+    // Spec §4.6: "string spec + int value → evaluation_error". We want
+    // string-spec transforms to see a real string, not a coerced int
+    // rendering — applying `:snake` to `2026` silently masks the fact
+    // that the field was misconfigured as an int.
+    if want_string && !matches!(value, Value::String(_)) {
+        return Err(EvaluationError::WrongFieldType {
+            name: name.to_owned(),
+            ty: value.type_str(),
+            expected: "string",
+        });
+    }
+
+    // No specs: render any scalar via its Display form as a literal.
+    // Tables / arrays still fail because there is no sensible literal
+    // for them to collapse to.
     let raw = match value {
         Value::String(s) => s.clone(),
         Value::Integer(n) => n.to_string(),
@@ -910,10 +953,9 @@ fn apply_numeric_specs(
     int: i64,
     specs: &[FormatSpec],
 ) -> Result<String, EvaluationError> {
-    // Only the last numeric spec controls the output (chain rule §4.4.3);
-    // the evaluator rejected mixed numeric+string for typed kinds, but
-    // `{field:<name>}` may have a mixed chain — we take the last
-    // numeric and ignore string specs that cannot apply to an int.
+    // `parse_field` rejects mixed numeric+string spec chains, so any
+    // spec reaching this function is numeric. Left-to-right application
+    // matters only between numeric specs (§4.4.3).
     let mut out = int.to_string();
     for spec in specs {
         match spec {
@@ -937,21 +979,16 @@ fn apply_numeric_specs(
                 }
                 out = format!("{out:0>w$}");
             }
-            // PlainInteger: no-op — `out` is already the plain decimal form.
-            //
-            // Other string specs don't apply cleanly to a raw integer
-            // rendering, but spec §4.4.3 requires left-to-right
-            // application: for `:lower` / `:upper` this is a no-op on
-            // digits, and casing specs don't make sense on digits
-            // either. Keep `out` unchanged in all those cases.
-            FormatSpec::PlainInteger
-            | FormatSpec::Snake
+            FormatSpec::PlainInteger => {}
+            FormatSpec::Snake
             | FormatSpec::Kebab
             | FormatSpec::Camel
             | FormatSpec::Pascal
             | FormatSpec::Lower
             | FormatSpec::Upper
-            | FormatSpec::Slug => {}
+            | FormatSpec::Slug => {
+                unreachable!("parse_field rejects mixed numeric/string spec chains")
+            }
         }
     }
     Ok(out)
@@ -1330,6 +1367,69 @@ mod tests {
         let meta = meta_with_custom(&[("scene", toml::Value::Integer(9999))]);
         let err = match_basename(&t, "sc9999.tif", Some(&meta)).unwrap_err();
         assert!(matches!(err, EvaluationError::NumericOverflow { .. }));
+    }
+
+    #[test]
+    fn rejects_mixed_dynamic_spec_chain_at_load_time() {
+        assert!(matches!(
+            compile("{field:scene:snake:03d}"),
+            Err(TemplateError::MixedDynamicSpecs { .. })
+        ));
+        assert!(matches!(
+            compile("{field:scene:03d:snake}"),
+            Err(TemplateError::MixedDynamicSpecs { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_multiple_open_ended_mixed_with_bare_field() {
+        // `{prefix}` is open-ended; `{field:name}` with no spec is also
+        // open-ended under §4.7. Together they should be rejected.
+        assert!(matches!(
+            compile("{prefix}_{field:name}.{ext}"),
+            Err(TemplateError::MultipleOpenEnded(_))
+        ));
+    }
+
+    #[test]
+    fn numeric_only_field_counts_toward_open_ended_limit() {
+        // Two numeric-only `{field:}` placeholders are open-ended per
+        // §4.7 — neither carries a string spec.
+        assert!(matches!(
+            compile("{field:a:03d}_{field:b:03d}.{ext}"),
+            Err(TemplateError::MultipleOpenEnded(_))
+        ));
+    }
+
+    #[test]
+    fn string_spec_field_does_not_count_as_open_ended() {
+        // `{field:name:snake}` has a string spec → not open-ended.
+        let t = compile("{prefix}_{field:name:snake}.{ext}").unwrap();
+        assert_eq!(t.open_ended_count(), 1); // just {prefix}
+    }
+
+    #[test]
+    fn string_spec_on_int_field_is_evaluation_error() {
+        let t = compile("{field:name:snake}.{ext}").unwrap();
+        let meta = meta_with_custom(&[("name", toml::Value::Integer(42))]);
+        let err = match_basename(&t, "42.png", Some(&meta)).unwrap_err();
+        assert!(matches!(
+            err,
+            EvaluationError::WrongFieldType {
+                expected: "string",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn no_spec_field_accepts_int_as_literal() {
+        // Without any spec, Display rendering remains the pragmatic
+        // default so `{field:shot}` + `shot = 20` → literal "20".
+        let t = compile("sc-{field:shot}.{ext}").unwrap();
+        let meta = meta_with_custom(&[("shot", toml::Value::Integer(20))]);
+        let m = match_basename(&t, "sc-20.png", Some(&meta)).unwrap();
+        assert!(m.matched, "failure: {:?}", m.failure_reason);
     }
 
     // --- Date match -------------------------------------------------------
