@@ -18,6 +18,7 @@ pub mod meta;
 pub mod naming;
 pub mod project;
 pub mod reconcile;
+pub mod rename;
 pub mod rules;
 pub mod watch;
 
