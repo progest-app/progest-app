@@ -293,9 +293,11 @@ CREATE INDEX idx_history_applied_at ON history(applied_at);
 ### M2 — 命名規則エンジン + 配置規則（1ヶ月）
 **目的**: ルールで lint と rename ができる。配置違反（placement）も同じ lint パイプラインで扱える。
 
+DSL の正規仕様は [NAMING_RULES_DSL.md](./NAMING_RULES_DSL.md)（parser / evaluator は同文書と bit-for-bit 一致させる）。
+
 - `core::rules` — DSL パーサ、2層規則、継承解決、勝利 rule_id トレース
 - テンプレート構文（`{prefix}_{seq:03d}` 等）
-- 制約規則（charset、casing、forbidden_chars 等）
+- 制約規則（charset、casing、forbidden_chars 等、AND 合成）
 - 違反検出、修正提案生成
 - `core::accepts` — `.dirmeta.toml` の `[accepts]` パース、`schema.toml` のエイリアス解決、effective 計算（opt-in 継承）、placement 違反検出、インポート先ランキング算出
 - 組み込みエイリアス（`:image`, `:video`, `:audio`, `:raw`, `:3d`, `:project`, `:text`）の構成拡張子を確定し `docs/` に記載

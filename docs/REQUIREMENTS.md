@@ -213,8 +213,10 @@ required_suffix = ""
 
 適用粒度:
 - ディレクトリ単位で定義、継承、上書き（CSS カスケード式）
-- 最近接祖先優先、`override = true` で明示置換
+- 最近接祖先優先。子レイヤで同一 `id` を再定義するとルール単位 full replace（フィールド部分マージなし）。`kind` を変える置換は `override = true` 必須、同 `kind` なら省略可（parser が warning）。
 - 規則評価結果は必ず「なぜその規則が勝ったか」をトレース（勝利規則 ID、継承チェーン）
+
+DSL の正規仕様は [NAMING_RULES_DSL.md](./NAMING_RULES_DSL.md) を参照。parser / evaluator 実装は同文書と bit-for-bit 一致させる。
 
 モード:
 | モード | 挙動 |
