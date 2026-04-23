@@ -9,7 +9,10 @@
 use std::path::{Path, PathBuf};
 
 use super::document::ProjectError;
-use super::layout::{DOT_DIR, INDEX_DB_FILENAME, PROJECT_TOML_FILENAME, USER_IGNORE_FILENAME};
+use super::layout::{
+    DOT_DIR, HISTORY_DB_FILENAME, INDEX_DB_FILENAME, LOCAL_DIR, PROJECT_TOML_FILENAME,
+    USER_IGNORE_FILENAME,
+};
 
 /// Absolute path to a discovered project root.
 ///
@@ -79,6 +82,12 @@ impl ProjectRoot {
     #[must_use]
     pub fn index_db(&self) -> PathBuf {
         self.dot_dir().join(INDEX_DB_FILENAME)
+    }
+
+    /// Absolute path of `.progest/local/history.db`.
+    #[must_use]
+    pub fn history_db(&self) -> PathBuf {
+        self.dot_dir().join(LOCAL_DIR).join(HISTORY_DB_FILENAME)
     }
 }
 

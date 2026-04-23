@@ -11,6 +11,7 @@
 
 pub mod accepts;
 pub mod fs;
+pub mod history;
 pub mod identity;
 pub mod index;
 pub mod meta;
