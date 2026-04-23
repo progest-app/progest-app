@@ -18,9 +18,11 @@
   - [x] `core::meta` 残タスク（pending queue / `.dirmeta.toml` loader）
   - [x] DSL 仕様書 `docs/NAMING_RULES_DSL.md`
   - [x] `core::rules` — loader / applies_to / template / constraint / inheritance / evaluate + trace、§10 golden + Codex 指摘 5 件のホットフィックス + regression golden（feat/m2-core-rules）
-  - [ ] `core::accepts` / `core::history` / `core::rename`（次着手: `core::accepts`）
+  - [x] `core::accepts` — builtin alias catalog / project alias loader / `[accepts]` 抽出 / effective_accepts 計算 / placement lint、7 シナリオ × 12 golden、`docs/ACCEPTS_ALIASES.md` 初版（feat/m2-core-accepts）
+  - [ ] `core::history` / `core::rename`（次着手: `core::history`）
   - [ ] CLI `lint` / `rename` / `undo` / `redo`
   - [ ] `core::rules` follow-up（suggested_names / §6 `{seq}` 採番 / trace の `NotApplicable` 拡張 / `match_basename` の Regex::new キャッシュ化 / §4.3 `{{`・§4.4 mixed spec 等の golden 追加）— 別 issue で管理
+  - [ ] `core::accepts` follow-up（import ランキング API / `suggested_destinations` 充填 / `[extension_compounds]` loader）— 別 issue で管理
 - **M3 以降**: 未着手
 
 後続 PR に切り出した既完了モジュールの残タスク:

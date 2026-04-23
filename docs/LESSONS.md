@@ -274,3 +274,53 @@
 - テストで `Vec<&str>` を作るとき `.iter().copied().collect()` は `iter_cloned_collect` 警告 → `let compound: &[&str] = &["..."];` で済ませる
 - 関数引数が 7 を超えると `too_many_arguments` → 仕方ない場合は `#[allow(clippy::too_many_arguments)]` + 理由コメント
 - `format!` で push_string するパターンは `format_push_string` → `use std::fmt::Write; write!(out, "{...}")` または `expect("writing to String never fails")`
+
+---
+
+## 12. core::accepts（placement lint / alias catalog）
+
+### 拡張子トークンは `:alias` / `.ext` / `""` の 3 形式を loader 段階で強制
+- `"psd"` のような leading-dot 無しのトークンを silent に通すと「何にもマッチしない literal」として残り、後段で「なぜ `.psd` が reject されるのか分からん」デバッグ地獄になる
+- ACCEPTS_ALIASES.md §3.1 に validation matrix を書いて、loader / schema 両方で同じ規則を hard-error させる
+- 場所: `crates/progest-core/src/accepts/loader.rs::parse_ext_token` / `schema.rs::load_alias_catalog_from_table`
+
+### `inherit = true` は rule 単位の継承ではなく **ディレクトリ単位の accepts union**
+- 仕様 §3.13.2: `effective_accepts(dir) = own ∪ (inherit ? effective_accepts(parent) : ∅)`
+- 祖先の `inherit` フラグは child の walk に影響しない（child が walk を始めると、あとは parent の own を順に連結）
+- rules の `full-replace override` とは真逆のセマンティクス。どちらも「継承」と呼ばれるので混同しやすい。accepts は additive、rules は replacive と覚える
+- 場所: `crates/progest-core/src/accepts/resolve.rs::compute_effective_accepts`
+
+### Builtin alias 上書きは **full replace**、union ではない
+- `[alias.image] = [".jpg"]` と書いたら、builtin の `.png` 等は消える（`:image` でヒットしなくなる）
+- 部分追加したいなら `[alias.image] = [":image", ".extra"]`…は仕様上禁止（ネスト禁止）なので、別 alias を作るか全部列挙し直すしかない
+- ローダは override 時に `SchemaWarning::BuiltinAliasOverridden` を必ず emit。doctor で surfaceして事故防止
+- 場所: `crates/progest-core/src/accepts/schema.rs::load_alias_catalog_from_table`
+
+### ビルトイン alias の拡張子セットは「現場の置き場判断」基準で決める
+- SVG は XML だが `docs/` に置かれるより `icons/` に置かれる方が圧倒的に多い → `:image` に分類（`:text` ではない）
+- PSD / PSB / BLEND / HIP などは「3D アセット」「編集中プロジェクト」両方の dir で正解なので `:3d` と `:project` に **意図的に重複** させる
+- `prores` は codec 名（ext ではマッチ不能）、`fcpbundle` は macOS package directory → どちらも accepts から除外。仕様定義 (REQUIREMENTS §3.13.1) の「拡張子文字列で比較」前提に素直に従う
+- 詳細は `docs/ACCEPTS_ALIASES.md` §2
+- 場所: `crates/progest-core/src/accepts/types.rs::BUILTIN_ALIASES`
+
+### `""` は明示的な「拡張子なし」エイリアスで、leading-dot ファイルも含む
+- `split_basename` が `.gitignore` を `(stem=".gitignore", ext=None)` として返す挙動を accepts 側も踏襲
+- `[accepts].exts = [""]` を書いたら `README` / `Makefile` だけでなく `.gitignore` / `.env` も通す（golden 60_no_extension_sentinel で固定）
+- 逆に hidden file だけ別扱いしたい場合は v1 では手段なし（将来の `:hidden` alias 検討）
+- 場所: `crates/progest-core/src/accepts/types.rs::normalize_ext_from_basename`
+
+### `Violation` の placement フィールドは optional、naming 側は None 固定
+- naming violations に余計なフィールド持たせない設計で、`Violation.placement_details: Option<PlacementDetails>` を採用
+- `category` で分岐すれば CLI `lint` は同じ Vec<Violation> から両カテゴリをまとめて出せる
+- `suggested_destinations` は import ランキング API (未着手) で埋める。この PR では常に空 Vec
+- 場所: `crates/progest-core/src/rules/types.rs::Violation`
+
+### placement violation の `rule_id` は予約語 `"placement"` で固定
+- naming の rule_id グラマ (`[a-z][a-z0-9_-]{0,63}`) に合致する文字列を選んでおくと、lint UI / saved-search / 集計が一つのキー空間で扱える
+- テストで `placement_rule_id_impl().unwrap()` を必ず走らせて、将来 RuleId grammar が変わった時に検知できるようにする
+- 場所: `crates/progest-core/src/accepts/evaluate.rs::placement_rule_id`
+
+### clippy 追加の罠
+- doc コメント内の `ACCEPTS_ALIASES.md` はバッククォート必須（rules の時と同じ doc_markdown）。`.md` 拡張子付きも対象
+- `zero_sized_map_values` — `BTreeMap<K, ()>` は `BTreeSet<K>` に置換せよの警告。dedup 用途は `BTreeSet` が正解
+- `collapsible_if` / `needless_raw_string_hashes` は rules で踏んだ時と同じ。テスト追加時は最初から `assert!(..., "msg")` と `r"..."` / `let-chains` を使う
