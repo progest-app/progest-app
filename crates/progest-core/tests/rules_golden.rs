@@ -107,14 +107,13 @@ fn run_all_golden_fixtures() {
     }
 
     assert!(ran > 0, "no golden fixtures were discovered");
-    if !failures.is_empty() {
-        panic!(
-            "{} / {} golden case(s) failed:\n{}",
-            failures.len(),
-            ran,
-            failures.join("\n")
-        );
-    }
+    assert!(
+        failures.is_empty(),
+        "{} / {} golden case(s) failed:\n{}",
+        failures.len(),
+        ran,
+        failures.join("\n")
+    );
 }
 
 fn run_case(rules_toml: &Path, case_path: &Path) -> Result<(), String> {
