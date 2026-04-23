@@ -6,6 +6,7 @@
 //! `progest-core`, keeping them interchangeable with the future GUI / IPC
 //! layer.
 
+pub mod clean;
 pub mod doctor;
 pub mod init;
 pub mod scan;

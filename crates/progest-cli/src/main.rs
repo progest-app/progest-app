@@ -6,10 +6,13 @@
 
 #![allow(clippy::todo)] // scaffold: Lint/Search populated in M2/M3.
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+use commands::clean::{CaseFlag, CleanArgs, FillFlag, FormatFlag};
 
 mod commands;
 
@@ -35,6 +38,30 @@ enum Command {
     Doctor,
     /// Check files against naming rules.
     Lint,
+    /// Preview mechanical name-cleanup candidates (REQUIREMENTS §3.5.5).
+    Clean {
+        /// Restrict the walk to these paths (project-root relative or absolute).
+        #[arg(value_name = "PATH")]
+        paths: Vec<PathBuf>,
+        /// Output format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: FormatFlag,
+        /// Override `[cleanup].convert_case`.
+        #[arg(long, value_enum)]
+        case: Option<CaseFlag>,
+        /// Force `remove_cjk` on regardless of config.
+        #[arg(long)]
+        strip_cjk: bool,
+        /// Force `remove_copy_suffix` on regardless of config.
+        #[arg(long)]
+        strip_suffix: bool,
+        /// How to resolve CJK holes when rendering the final name.
+        #[arg(long, default_value = "skip", value_enum)]
+        fill_mode: FillFlag,
+        /// Placeholder string substituted for each hole under `--fill-mode=placeholder`.
+        #[arg(long)]
+        placeholder: Option<String>,
+    },
     /// Search files using the Progest query DSL.
     Search {
         /// The query string (e.g. `tag:character type:psd is:violation`).
@@ -60,6 +87,29 @@ fn main() -> Result<ExitCode> {
         }
         Command::Doctor => commands::doctor::run(&cwd),
         Command::Lint => todo!("M2: rule engine lint report"),
+        Command::Clean {
+            paths,
+            format,
+            case,
+            strip_cjk,
+            strip_suffix,
+            fill_mode,
+            placeholder,
+        } => {
+            commands::clean::run(
+                &cwd,
+                &CleanArgs {
+                    paths,
+                    format,
+                    case,
+                    strip_cjk,
+                    strip_suffix,
+                    fill_mode,
+                    placeholder,
+                },
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Search { query: _ } => todo!("M3: DSL parser + FTS5 query"),
     }
 }

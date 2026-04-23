@@ -19,9 +19,9 @@
   - [x] DSL 仕様書 `docs/NAMING_RULES_DSL.md`
   - [x] `core::rules` — loader / applies_to / template / constraint / inheritance / evaluate + trace、§10 golden + Codex 指摘 5 件のホットフィックス + regression golden（feat/m2-core-rules）
   - [x] `core::accepts` — builtin alias catalog / project alias loader / `[accepts]` 抽出 / effective_accepts 計算 / placement lint、7 シナリオ × 12 golden、`docs/ACCEPTS_ALIASES.md` 初版（feat/m2-core-accepts）
-  - [ ] `core::naming` — 機械的命名整理 pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、`heck` 差し替え、`core::rules::template` の private case fn 移管、`[cleanup]` loader、violation.suggested_names[] 機械的充填（次着手）
+  - [x] `core::naming` — pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、`NameCandidate`（literal + hole）/ `Hole{origin,kind,pos}` / sentinel `⟨cjk-N⟩`、fill-mode `skip`/`placeholder[:STR]`（`prompt` は `core::rename` 着手時に実装）、`[cleanup]` loader、`core::rules::template` の private case fn 移管（heck 化）、`suggest::fill_suggested_names`、CLI `progest clean`（preview）、core integration + cli smoke test（feat/m2-core-naming）
   - [ ] `core::history` / `core::rename`
-  - [ ] CLI `lint` / `rename` / `undo` / `redo` / `clean`
+  - [ ] CLI `lint` / `rename` / `undo` / `redo`
   - [ ] `core::rules` follow-up（suggested_names / §6 `{seq}` 採番 / trace の `NotApplicable` 拡張 / `match_basename` の Regex::new キャッシュ化 / §4.3 `{{`・§4.4 mixed spec 等の golden 追加）— 別 issue で管理
   - [ ] `core::accepts` follow-up（import ランキング API / `suggested_destinations` 充填 / `[extension_compounds]` loader）— 別 issue で管理
 - **M3 以降**: 未着手
@@ -306,7 +306,7 @@ DSL の正規仕様は [NAMING_RULES_DSL.md](./NAMING_RULES_DSL.md)（parser / e
 - 違反検出、修正提案生成
 - `core::accepts` — `.dirmeta.toml` の `[accepts]` パース、`schema.toml` のエイリアス解決、effective 計算（opt-in 継承）、placement 違反検出、インポート先ランキング算出
 - 組み込みエイリアス（`:image`, `:video`, `:audio`, `:raw`, `:3d`, `:project`, `:text`）の構成拡張子を確定し `docs/` に記載
-- `core::naming` — AI 非依存の機械的命名整理。pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、NameCandidate（literal + 穴）モデル、fill-mode（`prompt` / `placeholder[:STR]` / `skip`）、`.progest/project.toml [cleanup]` loader、`core::rules::template` の private case fn を移管（`heck` crate 差し替え、PascalCase→snake_case 対応）、violation.suggested_names[] の機械的充填
+- `core::naming` — AI 非依存の機械的命名整理。pipeline（`remove_copy_suffix` → `remove_cjk` → `convert_case`）、NameCandidate（literal + 穴）モデル、fill-mode（`prompt` / `placeholder[:STR]` / `skip`）、`.progest/project.toml [cleanup]` loader、`core::rules::template` の private case fn を移管（`heck` crate 差し替え、PascalCase→snake_case 対応）、violation.suggested_names[] の機械的充填 — **landed**（feat/m2-core-naming、`prompt` モードは `core::rename` 着手時に充填）
 - `core::history` — 操作ログ（rename / tag / meta_edit / import）、inverse 生成、undo/redo
 - `core::rename` — preview、apply（原子トランザクション）、history 連携、naming の NameCandidate を入力に受ける
 - CLI: `lint`（placement カテゴリ統合）, `rename --preview|--apply`, `undo`, `redo`, `clean`（`progest clean <path> [--case snake|kebab|camel|pascal] [--strip-cjk] [--strip-suffix] [--fill-mode prompt|placeholder[:STR]|skip] [--apply]`）

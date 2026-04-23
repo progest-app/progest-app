@@ -324,3 +324,56 @@
 - doc コメント内の `ACCEPTS_ALIASES.md` はバッククォート必須（rules の時と同じ doc_markdown）。`.md` 拡張子付きも対象
 - `zero_sized_map_values` — `BTreeMap<K, ()>` は `BTreeSet<K>` に置換せよの警告。dedup 用途は `BTreeSet` が正解
 - `collapsible_if` / `needless_raw_string_hashes` は rules で踏んだ時と同じ。テスト追加時は最初から `assert!(..., "msg")` と `r"..."` / `let-chains` を使う
+
+---
+
+## 13. core::naming（cleanup pipeline / heck）
+
+### remove_copy_suffix は **tail-only**、中間一致させない
+- OS が copy suffix を付けるのは常にファイル名の末尾。`foo (1)_bar.png` の `(1)` は人が意図して入れた可能性が高く、剥がすと破壊的
+- 実装は stem の末尾に対してのみ regex 的に一致。`strip_dash_copy` → `strip_japanese_copy` → `strip_paren_number` の順で試す（dash-copy が `(N)` を含み得るので最初に試さないと paren_number が先に食って `"doc - Copy"` が残る）
+- 非再帰: `"foo (1) (2)"` は `(2)` のみ剥がす。連鎖適用すると「人が付けた `(1)`」まで失う
+- 場所: `crates/progest-core/src/naming/pipeline.rs::remove_copy_suffix`
+
+### heck は leading / trailing underscore を **食う**
+- `to_snake_case("_MainRole_v01")` → `"main_role_v01"`（先頭 `_` が消える）
+- pipeline で CJK ラン → Hole にした直後に残る literal `"_v01"` は、snake 化すると `"v01"` になる
+- 結果: sentinel rendering が `"⟨cjk-1⟩v01.png"` になって `_` が失われたように見える。これは仕様として受容（Hole と literal の境界 `_` は元々 separator 扱いで、case 変換の結果として削られて正しい）
+- 回避したい場合は `CaseStyle::Off` + 別途 snake 相当の変換を書くしかない。v1 では許容
+- 場所: `crates/progest-core/src/naming/pipeline.rs::apply_case_to_literals`
+
+### CJK 文字判定は Unicode ブロックをハードコード
+- `unicode-script` crate を入れるほどの usage でもないので、`is_cjk_char` で範囲直書き（Hiragana 3040–309F、Katakana 30A0–30FF + phonetic ext、Han 3400–9FFF + Ext B/C/D/E/F/G、Compat Ideographs）
+- 韓国語 Hangul（AC00-D7AF）は v1 スコープ外（要件上 CJK は「日中韓」だが、日本語現場向けに絞っておく）。追加需要があれば `HoleKind::Hangul` を足す流れ
+- 場所: `crates/progest-core/src/naming/pipeline.rs::is_cjk_char`
+
+### Hole は silent delete の代わり、disk に出さない
+- `NameCandidate` は `Vec<Segment>` で、`Segment::Hole` は原文・種別・位置を持つ
+- `to_sentinel_string()` は text dry-run 用の `⟨cjk-N⟩` 表記。disk には書いてはいけない
+- `FillMode::Skip` で resolve → holes があると `UnresolvedHoleError::HolesRemain` で拒否。これが disk-safe な唯一の contract
+- `FillMode::Prompt` は core 層では `PromptUnavailable` を返す（対話 I/O は CLI/UI 層の責務。現時点では `core::rename` 着手時に実装）
+- 場所: `crates/progest-core/src/naming/fill.rs`
+
+### `[cleanup]` は flat key、`convert_case = "off"` で無効化
+- `project.toml` の `[cleanup]` は `remove_copy_suffix: bool` / `remove_cjk: bool` / `convert_case: "off"|"snake"|...` の 3 フィールド
+- 未知キーは warning（`CleanupConfigWarning::UnknownKey`）で forward-compat。error にすると旧 progest で新 `[cleanup]` を開けなくなる
+- ネスト table（`[cleanup.case]` 等）は v1 では使わない。将来 protected_tokens / locale を足す時の拡張余地として残してある
+- 場所: `crates/progest-core/src/naming/loader.rs::extract_cleanup_config`
+
+### suggested_names[] は **naming 系 Violation のみ**、hole があれば空
+- placement violation は `suggested_destinations` 側の仕事（将来実装）。両者に rename 候補を出すと UI が錯綜する
+- hole が残る候補は `try_resolve_clean` が None を返すので suggested_names には入らない。`⟨cjk-N⟩` が入った文字列を user-facing suggestion に混ぜない設計
+- 既存リストへの重複挿入を避けるため、push 前に `contains` でチェック（`fill_suggested_names` は idempotent）
+- 場所: `crates/progest-core/src/naming/suggest.rs::fill_suggested_names`
+
+### `core::rules::template` の case 変換は `naming::case::rules_format_spec` に一本化
+- 旧実装の `word_chunks` は非 alnum でしか split しないので `"ForestNight"` → `"forestnight"` と collapse していた（サイレントバグ）
+- `RulesCase` enum は `CaseStyle` とは別物にした（rules は `Slug` を追加で持ち、`Off` は持たない）
+- golden 更新は不要だった（rules_golden は numeric `{field:*:03d}` しか exercise していなかった）。string spec を使う template を追加する時は case 違いを意識した fixture を同時に足す
+- 場所: `crates/progest-core/src/rules/template.rs::apply_string_specs` → `crates/progest-core/src/naming/case.rs::rules_format_spec`
+
+### CLI `progest clean` は preview 限定、`--apply` は `core::rename` 合流時に解禁
+- 破壊的操作（FS rename）は history 連携 + 原子トランザクション前提。`core::rename` の landed 後に wire
+- 現状フラグ: `--case`/`--strip-cjk`/`--strip-suffix` は config を上書き（on 方向のみ、off への override は project.toml 編集）、`--fill-mode skip|placeholder` / `--placeholder <STR>`（デフォルト `_`）、`--format text|json`、末尾の `[PATH]...` は接頭辞フィルタ
+- JSON 出力は `candidates[].{path, original, sentinel, resolved?, skipped_reason?, holes[]?, changed}` + `summary.{scanned, would_rename, skipped_due_to_holes, unchanged}`。clean_smoke テストで固定
+- `.gitignore` のような project-init 生成物も walk に乗る（`.progest/ignore` で明示除外されていない限り）。smoke テストでは特定候補のみ assert して、summary は下限チェックに留めた

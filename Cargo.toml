@@ -48,6 +48,7 @@ regex = "1"
 unicode-segmentation = "1"
 unicode-normalization = "0.1"
 serde_yaml = "0.9"
+heck = "0.5"
 
 [profile.release]
 lto = "thin"
