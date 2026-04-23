@@ -1,0 +1,6 @@
+name: "Case B — leading-dot file `.gitignore` is treated as extensionless and passes"
+# Mirrors split_basename's behavior: leading-dot filenames collapse
+# to the no-extension sentinel, so the `""` entry accepts them too.
+path: "project_root/.gitignore"
+expected:
+  violations: []

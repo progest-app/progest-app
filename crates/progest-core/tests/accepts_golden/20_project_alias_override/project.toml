@@ -1,0 +1,11 @@
+# Scenario 20: a project `[alias.image]` fully replaces the builtin.
+# After the override, `:image` contains ONLY jpg/png/webp — `.tif`
+# should now fail even though the builtin had it.
+[alias.image]
+exts = [".jpg", ".png", ".webp"]
+
+[[dirs]]
+path = "assets/web"
+[dirs.accepts]
+exts = [":image"]
+mode = "warn"

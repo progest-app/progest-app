@@ -1,0 +1,6 @@
+# Scenario 50: mode=strict escalates placement violation to Severity::Strict.
+[[dirs]]
+path = "deliverables"
+[dirs.accepts]
+exts = [".mp4"]
+mode = "strict"

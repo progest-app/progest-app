@@ -1,0 +1,7 @@
+name: "Case B — `.tif` was in the builtin but not in the project override; violation"
+path: "assets/web/photo.tif"
+expected:
+  violations:
+    - severity: "warn"
+      winning_rule_source: "own"
+      reason_contains: ".tif"

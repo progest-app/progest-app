@@ -1,0 +1,16 @@
+# Scenario 40: child dir with `inherit = true` unions parent accepts.
+# Files accepted via inheritance must be marked winning_rule_source=own
+# at dir granularity (the child declared at least one own ext), but
+# still reach pass/fail via parent's contribution.
+[[dirs]]
+path = "assets/refs"
+[dirs.accepts]
+inherit = true
+exts = [".pdf"]
+mode = "warn"
+
+[[dirs]]
+path = "assets"
+[dirs.accepts]
+exts = [".psd"]
+mode = "warn"

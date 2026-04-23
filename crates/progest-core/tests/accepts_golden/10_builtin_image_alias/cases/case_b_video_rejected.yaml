@@ -1,0 +1,7 @@
+name: "Case B — `.mp4` is not in `:image`, placement violation emitted"
+path: "assets/images/intro.mp4"
+expected:
+  violations:
+    - severity: "warn"
+      winning_rule_source: "own"
+      reason_contains: ".mp4"

@@ -1,0 +1,7 @@
+# Scenario 60: `""` in the accepts list explicitly permits
+# extensionless files (README, Makefile, leading-dot hidden files).
+[[dirs]]
+path = "project_root"
+[dirs.accepts]
+exts = [".md", ""]
+mode = "warn"

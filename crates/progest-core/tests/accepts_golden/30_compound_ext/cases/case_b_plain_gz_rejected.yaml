@@ -1,0 +1,6 @@
+name: "Case B — `.gz` alone is not in the accepts set, violation"
+path: "backups/lone.gz"
+expected:
+  violations:
+    - severity: "warn"
+      reason_contains: ".gz"

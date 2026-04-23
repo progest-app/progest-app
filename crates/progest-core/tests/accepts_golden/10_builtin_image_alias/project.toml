@@ -1,0 +1,7 @@
+# Scenario 10: a dir declaring `[accepts]` with the builtin `:image`
+# alias must accept JPEG/PNG/etc and reject video/audio.
+[[dirs]]
+path = "assets/images"
+[dirs.accepts]
+exts = [":image"]
+mode = "warn"

@@ -1,0 +1,4 @@
+name: "Case A — `.jpg` is in `:image`, no violation"
+path: "assets/images/hero.jpg"
+expected:
+  violations: []

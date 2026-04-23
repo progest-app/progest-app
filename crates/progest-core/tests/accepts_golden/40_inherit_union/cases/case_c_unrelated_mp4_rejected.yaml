@@ -1,0 +1,7 @@
+name: "Case C — `.mp4` is in neither own nor parent, violation"
+path: "assets/refs/demo.mp4"
+expected:
+  violations:
+    - severity: "warn"
+      winning_rule_source: "own"
+      reason_contains: ".mp4"

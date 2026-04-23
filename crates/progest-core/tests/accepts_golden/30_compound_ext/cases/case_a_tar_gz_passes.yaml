@@ -1,0 +1,4 @@
+name: "Case A — `.tar.gz` is peeled as a compound, matches"
+path: "backups/snapshot.tar.gz"
+expected:
+  violations: []

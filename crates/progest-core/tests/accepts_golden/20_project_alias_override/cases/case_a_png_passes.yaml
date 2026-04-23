@@ -1,0 +1,4 @@
+name: "Case A — `.png` kept by the override"
+path: "assets/web/banner.png"
+expected:
+  violations: []

@@ -1,0 +1,4 @@
+name: "Case B — `.psd` comes from the parent, inherit=true pulls it in"
+path: "assets/refs/source.psd"
+expected:
+  violations: []

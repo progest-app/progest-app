@@ -1,0 +1,4 @@
+name: "Case A — `README` has no extension, `\"\"` sentinel accepts it"
+path: "project_root/README"
+expected:
+  violations: []

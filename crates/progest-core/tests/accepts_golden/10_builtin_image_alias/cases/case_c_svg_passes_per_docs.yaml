@@ -1,0 +1,6 @@
+name: "Case C — `.svg` lives under `:image` per ACCEPTS_ALIASES.md"
+# Locks in the Codex-review decision that moved `svg` from `:text`
+# into `:image` so placement UX doesn't put SVGs in docs dirs.
+path: "assets/images/icon.svg"
+expected:
+  violations: []

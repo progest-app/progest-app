@@ -1,0 +1,4 @@
+name: "Case A — `.pdf` is in child's own set"
+path: "assets/refs/brief.pdf"
+expected:
+  violations: []

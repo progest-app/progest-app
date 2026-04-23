@@ -1,0 +1,6 @@
+name: "Case A — placement miss with mode=strict → Severity::Strict"
+path: "deliverables/notes.pdf"
+expected:
+  violations:
+    - severity: "strict"
+      reason_contains: ".pdf"

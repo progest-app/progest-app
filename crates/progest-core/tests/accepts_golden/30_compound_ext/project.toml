@@ -1,0 +1,7 @@
+# Scenario 30: compound extension handling via the builtin
+# BUILTIN_COMPOUND_EXTS set (`tar.gz` is a v1 builtin).
+[[dirs]]
+path = "backups"
+[dirs.accepts]
+exts = [".tar.gz"]
+mode = "warn"
