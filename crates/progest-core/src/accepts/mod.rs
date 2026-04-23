@@ -22,11 +22,13 @@
 //! follow-up PR — the types are wired here but the ranking loop is
 //! out of scope.
 
+pub mod evaluate;
 pub mod loader;
 pub mod resolve;
 pub mod schema;
 pub mod types;
 
+pub use evaluate::{evaluate_placement_for_file, placement_rule_id};
 pub use loader::{AcceptsExtraction, AcceptsLoadError, AcceptsWarning, extract_accepts};
 pub use resolve::{EffectiveAccepts, ResolveError, compute_effective_accepts, expand_own_accepts};
 pub use schema::{
