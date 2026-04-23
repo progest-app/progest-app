@@ -221,7 +221,14 @@ impl<'a> Rename<'a> {
         // Bulk renames get a fresh group_id so undo can reverse the
         // whole batch as a unit. A per-op group_id (e.g. set by
         // `core::sequence` for frame batches) takes precedence.
-        let batch_group = (preview.ops.len() >= 2).then(|| Uuid::now_v7().simple().to_string());
+        let auto_batch_group =
+            (preview.ops.len() >= 2).then(|| Uuid::now_v7().simple().to_string());
+        // When every op already carries the same caller-supplied
+        // group_id, surface that as the outcome group rather than
+        // the (unused) auto group — sequence callers expect the
+        // outcome to report the seq-... id they passed in.
+        let unified_caller_group = unified_caller_group(&staged);
+        let outcome_group = unified_caller_group.or(auto_batch_group.clone());
 
         let mut index_warnings = Vec::new();
         let mut history_warnings = Vec::new();
@@ -238,7 +245,7 @@ impl<'a> Rename<'a> {
                 .op
                 .group_id
                 .clone()
-                .or_else(|| batch_group.clone());
+                .or_else(|| auto_batch_group.clone());
             let op = Operation::Rename {
                 from: staged_op.op.from.clone(),
                 to: staged_op.op.to.clone(),
@@ -260,12 +267,14 @@ impl<'a> Rename<'a> {
         let applied = staged.into_iter().map(|s| s.op).collect();
         Ok(ApplyOutcome {
             batch_id,
-            group_id: batch_group,
+            group_id: outcome_group,
             applied,
             index_warnings,
             history_warnings,
         })
     }
+
+    // (helper lives outside the impl — see below)
 
     /// Phase 1: move every (file, sidecar) pair from its `from`
     /// location into the per-batch staging directory.
@@ -394,6 +403,22 @@ impl<'a> Rename<'a> {
             Ok(None) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
+    }
+}
+
+/// Returns `Some(group)` when every staged op carries the same
+/// non-empty caller-supplied `group_id`. `None` when ops carry
+/// different groups, or when at least one op has no group set —
+/// in either case the outcome falls back to `auto_batch_group`.
+fn unified_caller_group(staged: &[StagedOp]) -> Option<String> {
+    let first = staged.first()?.op.group_id.clone()?;
+    if staged
+        .iter()
+        .all(|s| s.op.group_id.as_deref() == Some(first.as_str()))
+    {
+        Some(first)
+    } else {
+        None
     }
 }
 

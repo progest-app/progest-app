@@ -13,6 +13,7 @@
 pub mod apply;
 pub mod ops;
 pub mod preview;
+pub mod sequence;
 
 pub use apply::{
     AppliedOp, ApplyError, ApplyOutcome, HistoryWarning, IndexWarning, Rename, STAGING_PREFIX,
@@ -22,3 +23,4 @@ pub use ops::{Conflict, ConflictKind, RenameOp};
 pub use preview::{
     PreviewError, RenamePreview, RenameRequest, build_preview, build_preview_with_prompter,
 };
+pub use sequence::requests_from_sequence;

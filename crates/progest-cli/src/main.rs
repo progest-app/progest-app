@@ -97,6 +97,11 @@ enum Command {
         /// Placeholder string substituted for each hole under `--fill-mode=placeholder`.
         #[arg(long)]
         placeholder: Option<String>,
+        /// Run sequence detection on PATH... and rename each sequence
+        /// by replacing the stem prefix with this value (preserves
+        /// numeric index, padding, separator, and extension).
+        #[arg(long, value_name = "STEM")]
+        sequence_stem: Option<String>,
     },
     /// Search files using the Progest query DSL.
     Search {
@@ -162,6 +167,7 @@ fn main() -> Result<ExitCode> {
             strip_suffix,
             fill_mode,
             placeholder,
+            sequence_stem,
         } => {
             let code = commands::rename::run(
                 &cwd,
@@ -175,6 +181,7 @@ fn main() -> Result<ExitCode> {
                     strip_suffix,
                     fill_mode,
                     placeholder,
+                    sequence_stem,
                 },
             )?;
             Ok(if code == 0 {

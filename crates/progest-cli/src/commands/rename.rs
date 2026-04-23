@@ -41,9 +41,10 @@ use progest_core::naming::{
 use progest_core::project::{ProjectDocument, ProjectRoot};
 use progest_core::rename::{
     ApplyOutcome, Rename, RenameOp, RenamePreview, RenameRequest, build_preview,
-    build_preview_with_prompter,
+    build_preview_with_prompter, requests_from_sequence,
 };
 use progest_core::rules::BUILTIN_COMPOUND_EXTS;
+use progest_core::sequence::detect_sequences;
 use serde::Serialize;
 
 use crate::commands::clean::{CaseFlag, FillFlag, FormatFlag};
@@ -60,6 +61,12 @@ pub struct RenameArgs {
     pub strip_suffix: bool,
     pub fill_mode: FillFlag,
     pub placeholder: Option<String>,
+    /// When set, run sequence detection on PATH... and rename each
+    /// detected sequence by replacing the stem prefix with this
+    /// value (numeric index, padding, separator, and extension are
+    /// preserved). Singletons (paths that aren't part of a detected
+    /// sequence of ≥2 members) are skipped with a warning.
+    pub sequence_stem: Option<String>,
 }
 
 /// Whether the command should preview only or commit to disk.
@@ -81,7 +88,12 @@ pub fn run(cwd: &Path, args: &RenameArgs) -> Result<i32> {
         if !args.paths.is_empty() {
             bail!("--from-stdin and PATH... are mutually exclusive");
         }
+        if args.sequence_stem.is_some() {
+            bail!("--from-stdin and --sequence-stem are mutually exclusive");
+        }
         load_preview_from_stdin().context("reading rename plan from stdin")?
+    } else if let Some(new_stem) = args.sequence_stem.as_deref() {
+        build_preview_from_sequences(&root, args, new_stem)?
     } else {
         build_preview_from_paths(&root, args)?
     };
@@ -200,6 +212,45 @@ fn entry_matches_filter(entry: &ScanEntry, paths: &[PathBuf], root: &Path) -> bo
         let rel_str = rel.to_string_lossy().replace('\\', "/");
         entry.path.as_str().starts_with(rel_str.as_str())
     })
+}
+
+// --- Sequence mode ---------------------------------------------------------
+
+fn build_preview_from_sequences(
+    root: &ProjectRoot,
+    args: &RenameArgs,
+    new_stem: &str,
+) -> Result<RenamePreview> {
+    let entries = collect_entries(root, &args.paths)?;
+    let paths: Vec<_> = entries.iter().map(|e| e.path.clone()).collect();
+    let detection = detect_sequences(&paths);
+
+    if detection.sequences.is_empty() {
+        bail!(
+            "no sequences detected in {} input path(s); --sequence-stem requires at least one \
+             group of ≥2 numbered files sharing parent + stem + separator + padding + extension",
+            paths.len()
+        );
+    }
+    if !detection.singletons.is_empty() {
+        eprintln!(
+            "skipping {} singleton path(s) (not part of any detected sequence)",
+            detection.singletons.len()
+        );
+    }
+
+    let requests: Vec<RenameRequest> = detection
+        .sequences
+        .iter()
+        .flat_map(|seq| requests_from_sequence(seq, new_stem))
+        .collect();
+
+    let fs = StdFileSystem::new(root.root().to_path_buf());
+    // Sequence renames don't traverse the cleanup pipeline, so the
+    // candidates are pure literals — `FillMode::Skip` would never
+    // surface a hole. Use it as the safe default.
+    let preview = build_preview(&requests, &progest_core::naming::FillMode::Skip, &fs)?;
+    Ok(preview)
 }
 
 // --- Stdin mode ------------------------------------------------------------
