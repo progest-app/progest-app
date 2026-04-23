@@ -189,18 +189,6 @@ pub fn load_document(raw: &str) -> Result<RulesDocument, LoadError> {
 
     let schema_version = extract_schema_version(&mut root)?;
 
-    // schema_version > known: forward-compat. Preserve everything in
-    // `extra` and skip rule-by-rule parsing — callers that care will
-    // degrade gracefully, and we don't want to misinterpret fields
-    // whose meaning may have changed.
-    if schema_version > RULES_SCHEMA_VERSION {
-        return Ok(RulesDocument {
-            schema_version,
-            rules: Vec::new(),
-            warnings: Vec::new(),
-            extra: root,
-        });
-    }
     if schema_version < RULES_SCHEMA_VERSION {
         return Err(LoadError::UnsupportedVersion {
             found: schema_version,
@@ -208,9 +196,13 @@ pub fn load_document(raw: &str) -> Result<RulesDocument, LoadError> {
         });
     }
 
-    // Known schema_version: consume `rules`, then treat anything else
-    // as unknown keys (warnings, not errors — typos shouldn't crash
-    // the whole load).
+    // `schema_version > known` is forward-compat: we still parse every
+    // `[[rules]]` entry against the v1 shape and honor its semantics,
+    // but unknown keys are preserved verbatim in `extra` instead of
+    // becoming warnings — a v1 binary that quietly dropped rules from
+    // a v2 project would hide real violations from the lint.
+    let newer_schema = schema_version > RULES_SCHEMA_VERSION;
+
     let rules_value = root
         .remove("rules")
         .unwrap_or_else(|| Value::Array(Vec::new()));
@@ -227,20 +219,31 @@ pub fn load_document(raw: &str) -> Result<RulesDocument, LoadError> {
 
     for entry in rules_array {
         let table = entry.try_into::<Table>().map_err(|e| decode_err(&e))?;
-        let rule = parse_rule(table, &mut seen_ids, &mut warnings)?;
+        let rule = parse_rule(table, &mut seen_ids, &mut warnings, newer_schema)?;
         rules.push(rule);
     }
 
-    for key in root.keys() {
-        warnings.push(LoadWarning::UnknownTopLevelKey { key: key.clone() });
+    // Under the known schema, leftover top-level keys are typos →
+    // warn but carry on. Under a newer schema, they're future shape →
+    // keep them in `extra`, suppress warnings.
+    if newer_schema {
+        Ok(RulesDocument {
+            schema_version,
+            rules,
+            warnings: Vec::new(),
+            extra: root,
+        })
+    } else {
+        for key in root.keys() {
+            warnings.push(LoadWarning::UnknownTopLevelKey { key: key.clone() });
+        }
+        Ok(RulesDocument {
+            schema_version,
+            rules,
+            warnings,
+            extra: Table::new(),
+        })
     }
-
-    Ok(RulesDocument {
-        schema_version,
-        rules,
-        warnings,
-        extra: Table::new(),
-    })
 }
 
 fn extract_schema_version(root: &mut Table) -> Result<u32, LoadError> {
@@ -261,6 +264,7 @@ fn parse_rule(
     mut table: Table,
     seen_ids: &mut BTreeSet<String>,
     warnings: &mut Vec<LoadWarning>,
+    newer_schema: bool,
 ) -> Result<RawRule, LoadError> {
     let id = extract_rule_id(&mut table)?;
     if !seen_ids.insert(id.as_str().to_owned()) {
@@ -278,15 +282,19 @@ fn parse_rule(
         RuleKind::Constraint => RawRuleBody::Constraint(extract_constraint_body(&mut table, &id)?),
     };
 
-    // Whatever remains is unknown keys — warn, don't error, so a typo
-    // in `casign` or a leftover from a newer install doesn't block
-    // linting the rest of the project.
-    for key in table.keys() {
-        warnings.push(LoadWarning::UnknownRuleKey {
-            rule_id: id.as_str().to_owned(),
-            key: key.clone(),
-        });
+    // Whatever remains is unknown. Under the known schema these are
+    // typos (warn so `casign` surfaces to the user); under a newer
+    // schema they're future fields (keep them in `extra` without
+    // warnings so the v1 binary still parses the rest correctly).
+    if !newer_schema {
+        for key in table.keys() {
+            warnings.push(LoadWarning::UnknownRuleKey {
+                rule_id: id.as_str().to_owned(),
+                key: key.clone(),
+            });
+        }
     }
+    let extra = if newer_schema { table } else { Table::new() };
 
     Ok(RawRule {
         id,
@@ -296,7 +304,7 @@ fn parse_rule(
         description,
         override_flag,
         body,
-        extra: table,
+        extra,
     })
 }
 
@@ -677,7 +685,11 @@ casign = "snake"  # typo: s/casign/casing/
     // --- schema_version gate ----------------------------------------------
 
     #[test]
-    fn forward_compat_preserves_everything_without_warnings() {
+    fn forward_compat_parses_known_rules_and_preserves_unknowns() {
+        // A v1 binary reading v2 content must still apply the rules it
+        // understands — silently dropping them would hide real lint
+        // violations. Unknown keys get stashed in `extra` (per-rule and
+        // top-level) without warnings.
         let doc = parse_ok(
             r#"
 schema_version = 2
@@ -687,16 +699,19 @@ id = "future-rule"
 kind = "template"
 applies_to = "./**"
 template = "{prefix}_{seq:03d}.{ext}"
+future_rule_knob = "soon"
 
 [new_top_level]
 hello = "world"
 "#,
         );
         assert_eq!(doc.schema_version, 2);
-        assert!(doc.rules.is_empty()); // not parsed — shape may have shifted
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id.as_str(), "future-rule");
+        assert!(doc.rules[0].extra.contains_key("future_rule_knob"));
         assert!(doc.warnings.is_empty());
-        assert!(doc.extra.contains_key("rules"));
         assert!(doc.extra.contains_key("new_top_level"));
+        assert!(!doc.extra.contains_key("rules")); // consumed, not left behind
     }
 
     #[test]
