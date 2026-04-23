@@ -23,9 +23,14 @@
 //! out of scope.
 
 pub mod loader;
+pub mod schema;
 pub mod types;
 
 pub use loader::{AcceptsExtraction, AcceptsLoadError, AcceptsWarning, extract_accepts};
+pub use schema::{
+    AliasCatalog, SchemaLoad, SchemaLoadError, SchemaWarning, load_alias_catalog,
+    load_alias_catalog_from_table,
+};
 pub use types::{
     AcceptsToken, BUILTIN_ALIASES, EXT_NONE, Ext, RawAccepts, builtin_alias, is_valid_alias_name,
     normalize_ext, normalize_ext_from_basename,
