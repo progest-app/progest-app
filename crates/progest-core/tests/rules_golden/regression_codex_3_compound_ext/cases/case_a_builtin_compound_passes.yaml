@@ -1,0 +1,4 @@
+name: "Case A — `archive.tar.gz` peels `tar.gz` (builtin compound) → stem=archive, passes"
+path: "backups/archive.tar.gz"
+expected:
+  violations: []

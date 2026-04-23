@@ -1,0 +1,7 @@
+name: "Case A — v2 document: v1-known rule still fires on a mismatching basename"
+path: "assets/shots/ch010/forest night.psd"
+expected:
+  violations:
+    - rule_id: "shot-template"
+      kind: "template"
+      severity: "warn"

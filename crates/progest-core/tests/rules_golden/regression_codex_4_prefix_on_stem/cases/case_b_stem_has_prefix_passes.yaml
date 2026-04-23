@@ -1,0 +1,4 @@
+name: "Case B — stem `foo.bar` starts with `foo.` → prefix satisfied"
+path: "assets/foo.bar.psd"
+expected:
+  violations: []

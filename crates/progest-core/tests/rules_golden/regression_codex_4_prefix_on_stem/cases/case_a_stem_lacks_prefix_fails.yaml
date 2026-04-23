@@ -1,0 +1,8 @@
+name: "Case A — `foo.psd` stem is just `foo`, does not start with `foo.` → MissingPrefix"
+path: "assets/foo.psd"
+expected:
+  violations:
+    - rule_id: "prefix-foo-dot"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "required prefix `foo.`"

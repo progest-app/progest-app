@@ -1,0 +1,14 @@
+# Codex #1 regression: a v1 binary reading a v2 rules.toml must still
+# enforce the rules it understands. Before the fix, schema_version > 1
+# returned an empty rules vector and every lint silently passed.
+schema_version = 2
+
+[[rules]]
+id = "shot-template"
+kind = "template"
+applies_to = "./assets/shots/**"
+template = "{prefix}_{seq:03d}.{ext}"
+future_rule_knob = "soon"
+
+[unknown_v2_section]
+hello = "world"

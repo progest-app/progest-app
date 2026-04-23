@@ -1,0 +1,11 @@
+# Codex #3 regression: `{ext}` must peel the longest compound
+# extension from the basename before matching the stem. Without this,
+# a greedy regex could treat `archive.tar.gz` as `(desc=archive.tar,
+# ext=gz)` and silently accept an invalid stem shape.
+schema_version = 1
+
+[[rules]]
+id = "archive-template"
+kind = "template"
+applies_to = "./backups/**"
+template = "{desc:snake}.{ext}"

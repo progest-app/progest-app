@@ -1,0 +1,11 @@
+name: "Case B — `foo.psd.bak` is not a builtin compound; stem retains `.` and snake regex rejects"
+# Without `psd.bak` in BUILTIN_COMPOUND_EXTS the split peels only
+# `.bak`, leaving stem = "foo.psd". `{desc:snake}` forbids `.`, so
+# this is a template mismatch — not an accidental match like the
+# pre-fix greedy-regex path allowed.
+path: "backups/foo.psd.bak"
+expected:
+  violations:
+    - rule_id: "archive-template"
+      kind: "template"
+      severity: "warn"

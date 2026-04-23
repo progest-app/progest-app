@@ -1,0 +1,11 @@
+# Codex #4 regression: `required_prefix` must be tested against the
+# stem, not the full basename. `required_prefix = "foo."` used to
+# silently pass every file whose extension coincidentally started with
+# `foo.` characters (i.e. every `foo.*` basename at all).
+schema_version = 1
+
+[[rules]]
+id = "prefix-foo-dot"
+kind = "constraint"
+applies_to = "./assets/**"
+required_prefix = "foo."
