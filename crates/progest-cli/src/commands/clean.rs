@@ -21,12 +21,13 @@
 //! to clean is not a failure. Genuine errors (no project, walker
 //! blew up) exit non-zero via `anyhow`.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
-use progest_core::fs::{EntryKind, IgnoreRules, ScanEntry, Scanner, StdFileSystem};
+use progest_core::fs::{EntryKind, IgnoreRules, ProjectPath, ScanEntry, Scanner, StdFileSystem};
 use progest_core::history::SqliteStore as HistoryStore;
 use progest_core::index::SqliteIndex;
 use progest_core::naming::{
@@ -38,7 +39,9 @@ use progest_core::rename::{
     ApplyOutcome, Rename, RenameRequest, build_preview, build_preview_with_prompter,
 };
 use progest_core::rules::BUILTIN_COMPOUND_EXTS;
+use progest_core::sequence::detect_sequences;
 use serde::Serialize;
+use uuid::Uuid;
 
 use crate::prompter::StdinHolePrompter;
 
@@ -112,7 +115,8 @@ pub fn run(cwd: &Path, args: &CleanArgs) -> Result<i32> {
     let fill_mode = build_fill_mode(args);
 
     let entries = collect_entries(&root, &args.paths)?;
-    let report = build_report(&root, &cfg, &fill_mode, &entries);
+    let seq_groups = sequence_groups(&entries);
+    let report = build_report(&root, &cfg, &fill_mode, &entries, &seq_groups);
 
     match args.format {
         FormatFlag::Text => emit_text(&report),
@@ -120,9 +124,29 @@ pub fn run(cwd: &Path, args: &CleanArgs) -> Result<i32> {
     }
 
     if args.apply {
-        return commit(&root, &cfg, args, &entries);
+        return commit(&root, &cfg, args, &entries, &seq_groups);
     }
     Ok(0)
+}
+
+/// Detect numbered sequences in the walked entries and emit a
+/// per-member `seq-<uuid>` tag so the preview (JSON + text) can show
+/// grouping and so `--apply` can bundle an entire sequence under one
+/// undo `group_id`. `Uuid::now_v7` is freshly generated per
+/// invocation — the in-memory mapping is what ties the preview to the
+/// apply call in a single run, so persisting determinism across runs
+/// would only cost us (history ids must not collide across batches).
+fn sequence_groups(entries: &[ScanEntry]) -> HashMap<ProjectPath, String> {
+    let paths: Vec<ProjectPath> = entries.iter().map(|e| e.path.clone()).collect();
+    let detection = detect_sequences(&paths);
+    let mut out = HashMap::new();
+    for seq in &detection.sequences {
+        let id = format!("seq-{}", Uuid::now_v7().simple());
+        for m in &seq.members {
+            out.insert(m.path.clone(), id.clone());
+        }
+    }
+    out
 }
 
 fn load_cfg(root: &ProjectRoot, args: &CleanArgs) -> Result<CleanupConfig> {
@@ -223,6 +247,12 @@ struct Entry<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     holes: Vec<HoleOut>,
     changed: bool,
+    /// `seq-<uuid>` shared with every other entry in the same detected
+    /// numbered sequence. `None` for singletons. The same id flows
+    /// into the apply path's history `group_id` so undo reverses the
+    /// whole sequence in one step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sequence_group: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -245,6 +275,7 @@ fn build_report<'a>(
     cfg: &CleanupConfig,
     fill: &FillMode,
     entries: &'a [ScanEntry],
+    seq_groups: &HashMap<ProjectPath, String>,
 ) -> Report<'a> {
     let mut candidates: Vec<Entry<'a>> = Vec::new();
     let mut summary = Summary {
@@ -288,6 +319,7 @@ fn build_report<'a>(
             skipped_reason,
             holes,
             changed,
+            sequence_group: seq_groups.get(&e.path).cloned(),
         });
     }
 
@@ -334,7 +366,12 @@ fn emit_text(report: &Report<'_>) {
             continue;
         }
         any = true;
-        println!("{}", c.path);
+        let seq_tag = c
+            .sequence_group
+            .as_deref()
+            .map(|g| format!("  [{g}]"))
+            .unwrap_or_default();
+        println!("{}{seq_tag}", c.path);
         if let Some(r) = &c.resolved {
             println!("  → {r}");
         } else {
@@ -357,12 +394,18 @@ fn emit_text(report: &Report<'_>) {
     if !any {
         println!("(nothing to clean)");
     }
+    let seq_members = report
+        .candidates
+        .iter()
+        .filter(|c| c.sequence_group.is_some())
+        .count();
     println!(
-        "\nSummary: {} scanned, {} would rename, {} skipped (holes), {} unchanged",
+        "\nSummary: {} scanned, {} would rename, {} skipped (holes), {} unchanged, {} in sequences",
         report.summary.scanned,
         report.summary.would_rename,
         report.summary.skipped_due_to_holes,
         report.summary.unchanged,
+        seq_members,
     );
 }
 
@@ -383,18 +426,27 @@ fn commit(
     cfg: &CleanupConfig,
     args: &CleanArgs,
     entries: &[ScanEntry],
+    seq_groups: &HashMap<ProjectPath, String>,
 ) -> Result<i32> {
     // Build one RenameRequest per scanned entry; let the preview
     // builder handle conflict detection (Identity, TargetExists,
     // DuplicateTarget, Unresolved). Filtering "would change" up
     // front would short-circuit Identity detection but also miss
     // surprising collisions, so we let the preview catch all four.
+    //
+    // Entries that share a detected sequence carry the same
+    // `group_id` so the apply path records them under one history
+    // batch — undo reverses the whole sequence in one hop.
     let requests: Vec<RenameRequest> = entries
         .iter()
         .map(|e| {
             let original = e.path.file_name().unwrap_or("");
             let cand = clean_basename(original, cfg, BUILTIN_COMPOUND_EXTS);
-            RenameRequest::new(e.path.clone(), cand)
+            let req = RenameRequest::new(e.path.clone(), cand);
+            match seq_groups.get(&e.path) {
+                Some(g) => req.with_group_id(g.clone()),
+                None => req,
+            }
         })
         .collect();
 

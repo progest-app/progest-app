@@ -217,3 +217,54 @@ fn summary_counts_match_candidates() -> Result<()> {
     assert_eq!(clean["changed"].as_bool(), Some(false));
     Ok(())
 }
+
+#[test]
+fn sequence_members_share_one_sequence_group_in_preview_json() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let cwd = tmp.path();
+    init_project(cwd)?;
+
+    // A clean 3-member sequence — no naming changes needed, but the
+    // preview still has to tag members with a shared `sequence_group`
+    // so `--apply` would bundle them under one history group_id.
+    for n in 1..=3 {
+        touch(cwd, &format!("assets/frame_{n:04}.exr"))?;
+    }
+
+    let report = run_clean_json(cwd)?;
+    let members: Vec<&Value> = (1..=3)
+        .map(|n| {
+            let path = format!("assets/frame_{n:04}.exr");
+            find_candidate(&report, &path)
+                .unwrap_or_else(|| panic!("expected candidate for {path}"))
+        })
+        .collect();
+    let first = members[0]["sequence_group"]
+        .as_str()
+        .expect("first member must carry a sequence_group");
+    assert!(first.starts_with("seq-"));
+    for m in &members {
+        assert_eq!(
+            m["sequence_group"].as_str(),
+            Some(first),
+            "all members must share the same sequence_group"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn singleton_files_have_no_sequence_group() -> Result<()> {
+    let tmp = TempDir::new()?;
+    let cwd = tmp.path();
+    init_project(cwd)?;
+    touch(cwd, "assets/one_off.png")?;
+
+    let report = run_clean_json(cwd)?;
+    let c = find_candidate(&report, "assets/one_off.png").unwrap();
+    assert!(
+        c.get("sequence_group").is_none(),
+        "singleton must not carry `sequence_group`, got {c:?}"
+    );
+    Ok(())
+}
