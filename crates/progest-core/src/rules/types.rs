@@ -149,14 +149,18 @@ impl Severity {
 
 /// Category of an emitted violation (§8.3).
 ///
-/// `Placement` is produced by `core::accepts`, not `core::rules`, but
-/// lives on the same enum so lint reports and exit-code folding can
-/// treat both sources uniformly.
+/// `Placement` is produced by `core::accepts` and `Sequence` by
+/// `core::sequence::drift`, neither of which belongs to `core::rules`.
+/// All three live on the same enum so lint reports and exit-code
+/// folding can treat every source uniformly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Naming,
     Placement,
+    /// Drift detected among sibling numbered sequences (same parent +
+    /// normalized stem but differing separator/padding).
+    Sequence,
 }
 
 // --- Constraint field vocab (§5.3 / §5.4) ----------------------------------
