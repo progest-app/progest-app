@@ -7,21 +7,19 @@
 //! trait against the in-memory fake; this file is the integration-level
 //! sanity net.
 
+mod support;
+
 use std::fs;
 
 use progest_core::fs::{ProjectPath, StdFileSystem};
-use progest_core::identity::{FileId, Fingerprint};
+use progest_core::identity::FileId;
 use progest_core::meta::{
     MetaDocument, MetaStore, NotesSection, SIDECAR_SUFFIX, StdMetaStore, TagsSection, sidecar_path,
 };
 use tempfile::TempDir;
 use toml::Table;
 
-fn sample_fingerprint() -> Fingerprint {
-    "blake3:00112233445566778899aabbccddeeff"
-        .parse()
-        .expect("literal fingerprint parses")
-}
+use support::sample_fingerprint;
 
 #[test]
 fn save_and_load_round_trip_through_real_filesystem() {

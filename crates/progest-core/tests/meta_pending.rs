@@ -6,24 +6,15 @@
 //! parent something that is not a directory, which is the same surface
 //! an OS-level `ENOTDIR` would expose in production.
 
+mod support;
+
 use std::fs;
 
 use progest_core::fs::{ProjectPath, StdFileSystem};
-use progest_core::identity::{FileId, Fingerprint};
-use progest_core::meta::{
-    MetaDocument, MetaStore, PENDING_DIR, PendingQueue, StdMetaStore, sidecar_path,
-};
+use progest_core::meta::{MetaStore, PENDING_DIR, PendingQueue, StdMetaStore, sidecar_path};
 use tempfile::TempDir;
 
-fn sample_fingerprint() -> Fingerprint {
-    "blake3:00112233445566778899aabbccddeeff"
-        .parse()
-        .expect("literal fingerprint parses")
-}
-
-fn sample_doc() -> MetaDocument {
-    MetaDocument::new(FileId::new_v7(), sample_fingerprint())
-}
+use support::sample_doc;
 
 #[test]
 fn save_failure_enqueues_a_pending_entry() {

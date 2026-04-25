@@ -8,11 +8,15 @@
 
 use std::fs;
 
+mod support;
+
 use progest_core::fs::{FileSystem, ProjectPath, StdFileSystem};
 use progest_core::index::{Index, SqliteIndex};
 use progest_core::meta::{MetaStore, SIDECAR_SUFFIX, StdMetaStore, sidecar_path};
 use progest_core::reconcile::{ChangeSet, FsEvent, ReconcileOutcome, Reconciler};
 use tempfile::TempDir;
+
+use support::p as path;
 
 /// Bundle of collaborators rooted at a freshly created tempdir.
 ///
@@ -67,10 +71,6 @@ impl Harness {
 
 fn sidecar(rel: &str) -> ProjectPath {
     sidecar_path(&ProjectPath::new(rel).unwrap()).unwrap()
-}
-
-fn path(rel: &str) -> ProjectPath {
-    ProjectPath::new(rel).unwrap()
 }
 
 #[test]
