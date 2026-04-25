@@ -1,9 +1,17 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // @see https://v2.tauri.app/reference/config/#buildconfig
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
 
   // Tauri expects a fixed port, fail if that port is not available.
   clearScreen: false,

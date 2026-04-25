@@ -10,7 +10,7 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-26（M3 #5 landed: CLI search/tag/view + reconcile/lint hooks + RichSearchHit + core::tag + core::search::views + 8 CLI smoke test）
+最終更新: 2026-04-26（M3 #6 landed: shadcn/ui 初期化 + Tailwind v4 配線 + Button/Dialog/Command コンポーネント追加）
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
@@ -44,7 +44,8 @@
   - [x] `core::search` parser + AST + validate + planner — `progest_core::search::{ast, lex, parse, validate, plan}` の 4 段純関数 pipeline、`Warning` 列挙 + `AlwaysFalse` 短絡（unknown_key / type_mismatch / kind 値不正 / glob 不正 / datetime 不正 / `created`/`updated` 重複 / `type:` AND 多重）、`BindValue` 化 SQL 出力。chrono 依存追加（`Z` / `±HH:MM` 両対応 + UTC 正規化）。72 unit + 8 golden（§10 examples 1:1）= 80 test pass（feat/m3-core-search-parser）
   - [x] `core::search::execute` + `core::index` migration 0002 — `files` に `name`/`ext`/`notes`/`updated_at`/`is_orphan` 列追加 + `custom_fields` / `violations` テーブル + `files_fts` FTS5 virtual table（trigram、INSERT/UPDATE/DELETE トリガ）。`SearchHit { file_id, path }` 型、planner SQL を outer SELECT で wrap して path 投影、`is:violation`/`is:misplaced` は violations EXISTS、`is:duplicate` は fingerprint self-join、`is:orphan` は flag。22 executor integration test、planner+executor 合算 102 search test pass（feat/m3-search-executor）
   - [x] CLI `progest search` / `progest tag` / `progest view` + reconcile/lint hooks — `Index` trait 拡張（`set_search_projection` / `replace_violations` / `set_custom_field` / `rich_rows`）、reconcile が search projection columns を populate、lint が visited file_id 単位で violations を replace、`core::tag` (add/remove/list + 検証) / `core::search::views` (loader+saver+upsert+delete) / `RichSearchHit` + `project_hits` 新設、CLI 3 subcommand 全実装、8 CLI smoke test（feat/m3-cli-search-tag-view）
-  - [ ] shadcn/ui 初期化 + コマンドパレット + tree/flat view + ディレクトリインスペクター + placement バッジ
+  - [x] shadcn/ui 初期化 — `app/` で Tailwind v4 (`tailwindcss` + `@tailwindcss/vite`) 導入、`@/*` import alias を tsconfig + vite.config に配線、`pnpm dlx shadcn@latest init --preset b1D0dy4m --template vite --pointer -c app` で `components.json` (style=`radix-mira`、iconLibrary=`lucide`、baseColor=`neutral`)、`@theme inline` ブロック / Geist Mono / `tw-animate-css` を含む `src/index.css` を生成。`Button` / `Dialog` / `Command`（+ `Input` / `Textarea` / `InputGroup`）を `src/components/ui/` に追加、`@/lib/utils` を新設。typecheck + build green、`mise run check` green（feat/m3-shadcn-init）
+  - [ ] コマンドパレット + tree/flat view + ディレクトリインスペクター + placement バッジ
   - [ ] Tauri IPC: search.execute / search.history / view.{list,save,delete} / accepts.{read,write}
 - **M4 サムネ + 外部連携 + AI + テンプレート**: M3 後着手。`core::import`（accepts ランキング + rename preview の一体適用、history `Operation::Import`）/ `core::thumbnail` / `core::template` / `core::ai`。M4 import kickoff 向け sequence 統合設計メモは [`docs/M2_HANDOFF.md §5`](./M2_HANDOFF.md)
 
