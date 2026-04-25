@@ -350,6 +350,13 @@ fn emit_text(report: &Report<'_>) {
 /// only the rename half (FS + .meta + index + history); the preview
 /// report is emitted separately above so the user can audit before
 /// re-running with `--apply`.
+///
+/// Decomposed into [`build_clean_requests`] (pure: candidate
+/// construction + sequence group tagging), [`resolve_preview`]
+/// (fill-mode dispatch over the cleanup builder), and
+/// [`drop_identity_ops`] (filter out `from == to` rows the user
+/// already saw in preview). The orchestration here just glues those
+/// together and runs the apply driver.
 fn commit(
     root: &ProjectRoot,
     cfg: &CleanupConfig,
@@ -357,53 +364,10 @@ fn commit(
     entries: &[ScanEntry],
     seq_groups: &HashMap<ProjectPath, String>,
 ) -> Result<i32> {
-    // Build one RenameRequest per scanned entry; let the preview
-    // builder handle conflict detection (Identity, TargetExists,
-    // DuplicateTarget, Unresolved). Filtering "would change" up
-    // front would short-circuit Identity detection but also miss
-    // surprising collisions, so we let the preview catch all four.
-    //
-    // Entries that share a detected sequence carry the same
-    // `group_id` so the apply path records them under one history
-    // batch — undo reverses the whole sequence in one hop.
-    let requests: Vec<RenameRequest> = entries
-        .iter()
-        .map(|e| {
-            let original = e.path.file_name().unwrap_or("");
-            let cand = clean_basename(original, cfg, BUILTIN_COMPOUND_EXTS);
-            let req = RenameRequest::new(e.path.clone(), cand);
-            match seq_groups.get(&e.path) {
-                Some(g) => req.with_group_id(g.clone()),
-                None => req,
-            }
-        })
-        .collect();
-
+    let requests = build_clean_requests(entries, cfg, seq_groups);
     let fs = StdFileSystem::new(root.root().to_path_buf());
-    let preview = match (&args.fill_mode, args.placeholder.clone()) {
-        (FillFlag::Skip, _) => build_preview(&requests, &FillMode::Skip, &fs)?,
-        (FillFlag::Placeholder, p) => build_preview(
-            &requests,
-            &FillMode::Placeholder(p.unwrap_or_else(|| "_".into())),
-            &fs,
-        )?,
-        (FillFlag::Prompt, _) => {
-            let prompter = StdinHolePrompter::from_stdio();
-            build_preview_with_prompter(&requests, &prompter, &fs)?
-        }
-    };
-
-    // Drop ops with `from == to` before checking cleanness:
-    // - Identity (no rename needed) — the dominant case
-    // - Unresolved (`to` falls back to `from`) — already surfaced in
-    //   the preview report; the user saw them and chose to apply
-    //   anyway, so skip them silently rather than blocking apply
-    let actionable: Vec<_> = preview
-        .ops
-        .into_iter()
-        .filter(|op| op.from != op.to)
-        .collect();
-    let preview = progest_core::rename::RenamePreview { ops: actionable };
+    let preview = resolve_preview(&requests, &args.fill_mode, args.placeholder.as_deref(), &fs)?;
+    let preview = drop_identity_ops(preview);
 
     if preview.ops.is_empty() {
         println!("\n(nothing to apply)");
@@ -424,6 +388,71 @@ fn commit(
 
     emit_apply_summary(&outcome);
     Ok(0)
+}
+
+/// Build one [`RenameRequest`] per scanned entry, threading shared
+/// `seq-<uuid>` group ids through so an entire detected sequence
+/// commits under a single history batch (and reverses with one undo).
+///
+/// The cleanup pipeline runs over every entry — including unchanged
+/// ones — because letting the preview builder see them all means it
+/// can detect `Identity` / `TargetExists` / `DuplicateTarget` /
+/// `Unresolved` conflicts with the full picture; pre-filtering
+/// "would change" here would short-circuit that.
+fn build_clean_requests(
+    entries: &[ScanEntry],
+    cfg: &CleanupConfig,
+    seq_groups: &HashMap<ProjectPath, String>,
+) -> Vec<RenameRequest> {
+    entries
+        .iter()
+        .map(|e| {
+            let original = e.path.file_name().unwrap_or("");
+            let cand = clean_basename(original, cfg, BUILTIN_COMPOUND_EXTS);
+            let req = RenameRequest::new(e.path.clone(), cand);
+            match seq_groups.get(&e.path) {
+                Some(g) => req.with_group_id(g.clone()),
+                None => req,
+            }
+        })
+        .collect()
+}
+
+/// Resolve `requests` into a [`RenamePreview`] under the requested
+/// fill-mode. `Prompt` wires in [`StdinHolePrompter`]; the other
+/// modes go through the non-interactive builder.
+fn resolve_preview(
+    requests: &[RenameRequest],
+    fill: &FillFlag,
+    placeholder: Option<&str>,
+    fs: &StdFileSystem,
+) -> Result<progest_core::rename::RenamePreview> {
+    let placeholder = placeholder.unwrap_or("_").to_string();
+    Ok(match fill {
+        FillFlag::Skip => build_preview(requests, &FillMode::Skip, fs)?,
+        FillFlag::Placeholder => build_preview(requests, &FillMode::Placeholder(placeholder), fs)?,
+        FillFlag::Prompt => {
+            let prompter = StdinHolePrompter::from_stdio();
+            build_preview_with_prompter(requests, &prompter, fs)?
+        }
+    })
+}
+
+/// Drop ops with `from == to` before checking cleanness:
+///
+/// - Identity (no rename needed) — the dominant case
+/// - Unresolved (`to` falls back to `from`) — already surfaced in
+///   the preview report; the user saw them and chose to apply
+///   anyway, so skip them silently rather than blocking apply
+fn drop_identity_ops(
+    preview: progest_core::rename::RenamePreview,
+) -> progest_core::rename::RenamePreview {
+    let actionable: Vec<_> = preview
+        .ops
+        .into_iter()
+        .filter(|op| op.from != op.to)
+        .collect();
+    progest_core::rename::RenamePreview { ops: actionable }
 }
 
 fn emit_apply_summary(outcome: &ApplyOutcome) {
