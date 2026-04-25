@@ -42,6 +42,12 @@ fn placement_rule_id_impl() -> Result<RuleId, RuleIdError> {
 /// `compound_exts` is the longest-match compound extension catalog
 /// (builtin + project `[extension_compounds]`); reuse
 /// [`BUILTIN_COMPOUND_EXTS`] when the project has no customization.
+///
+/// System files (`.dirmeta.toml`, `<asset>.meta` sidecars) are
+/// always exempt: they're project metadata, not user content, and
+/// requiring every directory's `[accepts]` to also list `.toml` /
+/// `.meta` so the dirmeta itself doesn't self-violate would defeat
+/// the purpose of the rule.
 #[must_use]
 pub fn evaluate_placement_for_file(
     path: &ProjectPath,
@@ -52,6 +58,9 @@ pub fn evaluate_placement_for_file(
     let effective = parent_effective?;
 
     let basename = path.file_name()?;
+    if is_system_file(basename) {
+        return None;
+    }
     let ext = super::types::normalize_ext_from_basename(basename, compound_exts);
 
     if effective.accepts(&ext) {
@@ -83,6 +92,15 @@ pub fn evaluate_placement_for_file(
             suggested_destinations: Vec::new(),
         }),
     })
+}
+
+/// `.dirmeta.toml` and any `<basename>.meta` sidecar are project
+/// metadata, not user content. Every dir's `[accepts]` would
+/// otherwise have to list `.toml` and `.meta` just so the dirmeta
+/// itself doesn't fail placement, which is absurd.
+fn is_system_file(basename: &str) -> bool {
+    use crate::meta::{DIRMETA_FILENAME, SIDECAR_SUFFIX};
+    basename == DIRMETA_FILENAME || basename.ends_with(SIDECAR_SUFFIX)
 }
 
 fn display_ext(ext: &Ext) -> String {

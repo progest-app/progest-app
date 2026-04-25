@@ -162,9 +162,14 @@ pub const BUILTIN_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "3d",
+        "model",
         &[
             "fbx", "obj", "usd", "usda", "usdc", "usdz", "abc", "gltf", "glb", "stl", "ply", "drc",
+        ],
+    ),
+    (
+        "scene",
+        &[
             "blend", "ma", "mb", "max", "c4d", "hip", "hiplc", "hipnc", "ztl", "zpr", "spp", "sbs",
             "sbsar", "vdb",
         ],
@@ -249,9 +254,11 @@ mod tests {
     }
 
     #[test]
-    fn builtin_aliases_cover_the_seven_v1_names() {
+    fn builtin_aliases_cover_the_v1_names() {
         let names: Vec<&str> = BUILTIN_ALIASES.iter().map(|(n, _)| *n).collect();
-        for expected in ["image", "video", "audio", "raw", "3d", "project", "text"] {
+        for expected in [
+            "image", "video", "audio", "raw", "model", "scene", "project", "text",
+        ] {
             assert!(
                 names.contains(&expected),
                 "missing builtin alias `{expected}`"

@@ -3,7 +3,7 @@
 `.dirmeta.toml` の `[accepts]` セクションで使える **ビルトインカテゴリエイリアス** の構成拡張子を定義する。
 REQUIREMENTS.md §3.13 の配置規則仕様と対で読むこと。
 
-最終更新: 2026-04-23（`core::accepts` 着手時の初版）
+最終更新: 2026-04-26（`:3d` を `:model` + `:scene` に分割。識別子に leading digit が出ないように整理）
 
 ---
 
@@ -105,9 +105,9 @@ Moving-image source（カメラ RAW 含む）+ editorial / delivery コンテナ
 | `x3f` | Sigma |
 | `dng` | Adobe DNG（汎用 RAW） |
 
-### `:3d`
+### `:model`
 
-3DCG / VFX / 汎用 3D アセット。ジオメトリ、DCC プロジェクトファイル、テクスチャ・スカルプト・交換フォーマット含む。`:project` と一部重複する（`blend`, `hip`, `ma`, `mb`, `max`, `c4d`）— `:project` は「編集中プロジェクト」、`:3d` は「3D アセット全般」の文脈で選ぶ。
+メッシュ・ジオメトリ・ポイントクラウド系の交換フォーマット。アプリ非依存の 3D アセットファイルだけを集める。DCC のセッション保存ファイル（`blend` / `ma` 等）は `:scene` 側にある。
 
 | 拡張子 | 種別 |
 | --- | --- |
@@ -119,6 +119,13 @@ Moving-image source（カメラ RAW 含む）+ editorial / delivery コンテナ
 | `stl` | STL |
 | `ply` | Stanford PLY |
 | `drc` | Draco 圧縮メッシュ |
+
+### `:scene`
+
+DCC アプリのセッション / シーンファイル + テクスチャ作成系プロジェクトファイル + ボリュームキャッシュ。「アプリで開いて編集する」性質の 3D 系ファイル。`:project` と一部重複する（`blend`, `hip`, `ma`, `mb`, `max`, `c4d`）— `:project` は「映像・編集中プロジェクトファイル全般」、`:scene` は「3D / DCC のセッション保存」の文脈で選ぶ。
+
+| 拡張子 | アプリ |
+| --- | --- |
 | `blend` | Blender |
 | `ma` / `mb` | Maya |
 | `max` | 3ds Max |
@@ -131,7 +138,7 @@ Moving-image source（カメラ RAW 含む）+ editorial / delivery コンテナ
 
 ### `:project`
 
-DCC プロジェクトファイル。編集中 / セッション保存の意味が強いもの。`:3d` と重複するエントリは「3D 作業の prroject ファイル」として意図的に両方へ入れる。
+DCC プロジェクトファイル。編集中 / セッション保存の意味が強いもの。`:scene` と重複するエントリは「3D 作業の project ファイル」として意図的に両方へ入れる。
 
 | 拡張子 | アプリ |
 | --- | --- |

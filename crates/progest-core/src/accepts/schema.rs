@@ -230,8 +230,10 @@ mod tests {
     fn absent_schema_returns_builtin_catalog() {
         let load = load_alias_catalog("").unwrap();
         assert!(load.warnings.is_empty());
-        // All seven builtin aliases reachable.
-        for name in ["image", "video", "audio", "raw", "3d", "project", "text"] {
+        // All builtin aliases reachable.
+        for name in [
+            "image", "video", "audio", "raw", "model", "scene", "project", "text",
+        ] {
             assert!(
                 load.catalog.lookup(name).is_some(),
                 "builtin `{name}` missing"
