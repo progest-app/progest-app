@@ -432,10 +432,12 @@ fn emit_apply_summary(outcome: &ApplyOutcome) {
         println!("  group: {g}");
     }
     println!("  batch: {}", outcome.batch_id);
-    if !outcome.index_warnings.is_empty() {
-        println!("  index warnings: {}", outcome.index_warnings.len());
+    let index_warns = outcome.index_warnings().count();
+    if index_warns > 0 {
+        println!("  index warnings: {index_warns}");
     }
-    if !outcome.history_warnings.is_empty() {
-        println!("  history warnings: {}", outcome.history_warnings.len());
+    let history_warns = outcome.history_warnings().count();
+    if history_warns > 0 {
+        println!("  history warnings: {history_warns}");
     }
 }

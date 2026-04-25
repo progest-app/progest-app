@@ -25,7 +25,7 @@
 //! # Index handling
 //!
 //! Index updates run after Phase 2 commits, in input order. Failures
-//! are recorded in [`ApplyOutcome::index_warnings`] but **do not**
+//! are recorded as [`ApplyWarning::IndexUpdate`] entries but **do not**
 //! roll back the FS state — the index is a queryable cache and
 //! reconcile rebuilds it from disk. Rolling back successful FS
 //! renames because the cache stayed stale would punish the user for
@@ -39,7 +39,7 @@
 //! roll the whole batch back as a unit. A caller-supplied
 //! [`RenameOp::group_id`] (e.g. set by `core::sequence` for frame
 //! batches) takes precedence over the auto-generated one. History
-//! append failures land in [`ApplyOutcome::history_warnings`] for the
+//! append failures land as [`ApplyWarning::HistoryAppend`] entries for the
 //! same reason as index failures: undo coverage is recoverable, FS
 //! truth is not.
 //!
@@ -72,22 +72,60 @@ pub const STAGING_PREFIX: &str = ".progest/local/staging";
 /// Successfully applied op, returned in [`ApplyOutcome::applied`].
 pub type AppliedOp = RenameOp;
 
-/// One index row whose update did not land. The FS rename succeeded;
-/// reconcile will repair the index on its next pass.
+/// A non-fatal post-commit anomaly during [`Rename::apply`]. The FS
+/// rename always succeeded by the time these are produced; the
+/// variant says which side-channel update missed.
+///
+/// Represented as a tagged enum (`{"kind": "index_update", ...}`) on
+/// the JSON wire so callers can discriminate with a single field
+/// match.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct IndexWarning {
-    pub from: ProjectPath,
-    pub to: ProjectPath,
-    pub message: String,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ApplyWarning {
+    /// Index row update failed after a successful FS commit. FS
+    /// state is correct; reconcile will repair the index on its
+    /// next pass.
+    IndexUpdate {
+        from: ProjectPath,
+        to: ProjectPath,
+        message: String,
+    },
+    /// History append failed after a successful FS + index commit.
+    /// Only undo coverage was lost.
+    HistoryAppend {
+        from: ProjectPath,
+        to: ProjectPath,
+        message: String,
+    },
 }
 
-/// One history entry that failed to append. The FS rename and index
-/// update both succeeded; only undo coverage was lost.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct HistoryWarning {
-    pub from: ProjectPath,
-    pub to: ProjectPath,
-    pub message: String,
+impl ApplyWarning {
+    /// Source path the warning is attached to.
+    pub fn from(&self) -> &ProjectPath {
+        match self {
+            Self::IndexUpdate { from, .. } | Self::HistoryAppend { from, .. } => from,
+        }
+    }
+    /// Destination path the warning is attached to.
+    pub fn to(&self) -> &ProjectPath {
+        match self {
+            Self::IndexUpdate { to, .. } | Self::HistoryAppend { to, .. } => to,
+        }
+    }
+    /// Human-readable failure reason.
+    pub fn message(&self) -> &str {
+        match self {
+            Self::IndexUpdate { message, .. } | Self::HistoryAppend { message, .. } => message,
+        }
+    }
+    /// `true` for [`Self::IndexUpdate`] variants.
+    pub fn is_index_update(&self) -> bool {
+        matches!(self, Self::IndexUpdate { .. })
+    }
+    /// `true` for [`Self::HistoryAppend`] variants.
+    pub fn is_history_append(&self) -> bool {
+        matches!(self, Self::HistoryAppend { .. })
+    }
 }
 
 /// Result of a successful [`Rename::apply`].
@@ -103,12 +141,21 @@ pub struct ApplyOutcome {
     /// Ops that committed successfully. Same length and order as the
     /// input preview's clean ops.
     pub applied: Vec<AppliedOp>,
-    /// Index updates that failed after a successful FS commit. FS
-    /// state is correct; reconcile will repair.
-    pub index_warnings: Vec<IndexWarning>,
-    /// History entries that failed to append after a successful FS
-    /// commit. FS state is correct; only undo coverage was lost.
-    pub history_warnings: Vec<HistoryWarning>,
+    /// Post-commit anomalies whose FS state landed correctly but whose
+    /// index / history side effect was lost. Reconcile + retry repair
+    /// these; they don't fail the apply.
+    pub warnings: Vec<ApplyWarning>,
+}
+
+impl ApplyOutcome {
+    /// Iterator over warnings of the [`ApplyWarning::IndexUpdate`] variant.
+    pub fn index_warnings(&self) -> impl Iterator<Item = &ApplyWarning> {
+        self.warnings.iter().filter(|w| w.is_index_update())
+    }
+    /// Iterator over warnings of the [`ApplyWarning::HistoryAppend`] variant.
+    pub fn history_warnings(&self) -> impl Iterator<Item = &ApplyWarning> {
+        self.warnings.iter().filter(|w| w.is_history_append())
+    }
 }
 
 /// Which half of a (file, sidecar) pair was being moved when an FS
@@ -226,8 +273,7 @@ impl<'a> Rename<'a> {
                 batch_id: String::new(),
                 group_id: None,
                 applied: Vec::new(),
-                index_warnings: Vec::new(),
-                history_warnings: Vec::new(),
+                warnings: Vec::new(),
             });
         }
 
@@ -252,11 +298,10 @@ impl<'a> Rename<'a> {
         let unified_caller_group = unified_caller_group(&staged);
         let outcome_group = unified_caller_group.or(auto_batch_group.clone());
 
-        let mut index_warnings = Vec::new();
-        let mut history_warnings = Vec::new();
+        let mut warnings = Vec::new();
         for staged_op in &staged {
             if let Err(message) = self.update_index(&staged_op.op.from, &staged_op.op.to) {
-                index_warnings.push(IndexWarning {
+                warnings.push(ApplyWarning::IndexUpdate {
                     from: staged_op.op.from.clone(),
                     to: staged_op.op.to.clone(),
                     message,
@@ -279,7 +324,7 @@ impl<'a> Rename<'a> {
                     req = req.with_group(group);
                 }
                 if let Err(e) = history.append(&req) {
-                    history_warnings.push(HistoryWarning {
+                    warnings.push(ApplyWarning::HistoryAppend {
                         from: staged_op.op.from.clone(),
                         to: staged_op.op.to.clone(),
                         message: e.to_string(),
@@ -293,8 +338,7 @@ impl<'a> Rename<'a> {
             batch_id,
             group_id: outcome_group,
             applied,
-            index_warnings,
-            history_warnings,
+            warnings,
         })
     }
 
@@ -414,7 +458,7 @@ impl<'a> Rename<'a> {
     }
 
     /// Update the index row for one rename. Returns a human-readable
-    /// reason on failure so the caller can pack it into [`IndexWarning`].
+    /// reason on failure so the caller can pack it into [`ApplyWarning::IndexUpdate`].
     fn update_index(&self, from: &ProjectPath, to: &ProjectPath) -> Result<(), String> {
         match self.index.get_file_by_path(from) {
             Ok(Some(mut row)) => {
@@ -512,7 +556,7 @@ mod tests {
 
         let outcome = Rename::new(&fs, &index, &history).apply(&preview).unwrap();
         assert_eq!(outcome.applied.len(), 1);
-        assert!(outcome.index_warnings.is_empty());
+        assert_eq!(outcome.index_warnings().count(), 0);
 
         // FS state: file + sidecar at new location, none at old.
         assert!(!fs.exists(&p("a.psd")));
@@ -751,7 +795,7 @@ mod tests {
         assert_eq!(fs.read(&p("b.psd")).unwrap(), b"a.psd");
         // No row → No warning (the update is a no-op when there's
         // nothing to update; reconcile will create the row later).
-        assert!(outcome.index_warnings.is_empty());
+        assert_eq!(outcome.index_warnings().count(), 0);
     }
 
     /// Counts every `append` call and rejects each with a fixed
@@ -796,7 +840,7 @@ mod tests {
             outcome.group_id.is_none(),
             "single-op batch should not allocate a group"
         );
-        assert!(outcome.history_warnings.is_empty());
+        assert_eq!(outcome.history_warnings().count(), 0);
 
         let entries = history.list(usize::MAX).unwrap();
         assert_eq!(entries.len(), 1);
@@ -913,9 +957,10 @@ mod tests {
         // FS landed.
         assert_eq!(fs.read(&p("b.psd")).unwrap(), b"a.psd");
         // History failure surfaced as a warning, not an error.
-        assert_eq!(outcome.history_warnings.len(), 1);
-        assert_eq!(outcome.history_warnings[0].from.as_str(), "a.psd");
-        assert_eq!(outcome.history_warnings[0].to.as_str(), "b.psd");
+        let history_warnings: Vec<_> = outcome.history_warnings().collect();
+        assert_eq!(history_warnings.len(), 1);
+        assert_eq!(history_warnings[0].from().as_str(), "a.psd");
+        assert_eq!(history_warnings[0].to().as_str(), "b.psd");
     }
 
     #[test]

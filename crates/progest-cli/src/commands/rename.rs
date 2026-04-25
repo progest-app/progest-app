@@ -319,20 +319,18 @@ fn emit_apply_text(outcome: &ApplyOutcome) {
     for op in &outcome.applied {
         let _ = writeln!(out, "  {} → {}", op.from, op.to);
     }
-    if !outcome.index_warnings.is_empty() {
-        let _ = writeln!(out, "\nindex warnings ({}):", outcome.index_warnings.len());
-        for w in &outcome.index_warnings {
-            let _ = writeln!(out, "  {} → {}: {}", w.from, w.to, w.message);
+    let index_warnings: Vec<_> = outcome.index_warnings().collect();
+    if !index_warnings.is_empty() {
+        let _ = writeln!(out, "\nindex warnings ({}):", index_warnings.len());
+        for w in &index_warnings {
+            let _ = writeln!(out, "  {} → {}: {}", w.from(), w.to(), w.message());
         }
     }
-    if !outcome.history_warnings.is_empty() {
-        let _ = writeln!(
-            out,
-            "\nhistory warnings ({}):",
-            outcome.history_warnings.len()
-        );
-        for w in &outcome.history_warnings {
-            let _ = writeln!(out, "  {} → {}: {}", w.from, w.to, w.message);
+    let history_warnings: Vec<_> = outcome.history_warnings().collect();
+    if !history_warnings.is_empty() {
+        let _ = writeln!(out, "\nhistory warnings ({}):", history_warnings.len());
+        for w in &history_warnings {
+            let _ = writeln!(out, "  {} → {}: {}", w.from(), w.to(), w.message());
         }
     }
 }
@@ -342,8 +340,8 @@ fn emit_apply_json(outcome: &ApplyOutcome) -> Result<()> {
         batch_id: &outcome.batch_id,
         group_id: outcome.group_id.as_deref(),
         applied: outcome.applied.len(),
-        index_warnings: outcome.index_warnings.len(),
-        history_warnings: outcome.history_warnings.len(),
+        index_warnings: outcome.index_warnings().count(),
+        history_warnings: outcome.history_warnings().count(),
         paths: outcome
             .applied
             .iter()
