@@ -1,0 +1,11 @@
+name = "10.7 implicit AND with two type clauses warns"
+query = "type:psd type:tif"
+
+[expected]
+sql_contains = [
+  "f.ext = ?",
+  " AND ",
+]
+text_params = ["psd", "tif"]
+warning_kinds = ["type_and_multi"]
+warning_count = 1

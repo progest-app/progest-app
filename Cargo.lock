@@ -3039,6 +3039,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "chrono",
  "criterion",
  "globset",
  "heck 0.5.0",

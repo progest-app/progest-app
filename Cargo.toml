@@ -50,6 +50,7 @@ unicode-normalization = "0.1"
 serde_yaml = "0.9"
 heck = "0.5"
 proptest = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 
 [profile.release]
 lto = "thin"

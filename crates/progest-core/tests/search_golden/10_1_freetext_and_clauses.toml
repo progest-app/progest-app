@@ -1,0 +1,13 @@
+name = "10.1 freetext + tag + type"
+query = "forest tag:wip type:psd"
+
+[expected]
+sql_contains = [
+  "files_fts",
+  "MATCH ?",
+  "tags",
+  "f.ext = ?",
+  " AND ",
+]
+text_params = ["\"forest\"", "wip", "psd"]
+warning_count = 0

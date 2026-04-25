@@ -29,6 +29,7 @@ regex.workspace = true
 unicode-segmentation.workspace = true
 unicode-normalization.workspace = true
 heck.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true

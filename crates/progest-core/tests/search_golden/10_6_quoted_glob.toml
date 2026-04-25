@@ -1,0 +1,13 @@
+name = "10.6 quoted name + path with non-ASCII"
+query = 'name:"My File*.psd" path:"./プロジェクト x/**"'
+
+[expected]
+sql_contains = [
+  "f.name GLOB ?",
+  "f.path GLOB ?",
+]
+text_params = [
+  "My File*.psd",
+  "./プロジェクト x/**",
+]
+warning_count = 0

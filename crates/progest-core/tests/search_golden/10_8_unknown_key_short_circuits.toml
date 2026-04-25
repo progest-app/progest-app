@@ -1,0 +1,12 @@
+name = "10.8 unknown key short-circuits to 0=1 with warning"
+query = "tag:wip foobar:hello"
+
+[expected]
+sql_contains = [
+  "tags",
+  "0 = 1",
+  " AND ",
+]
+text_params = ["wip"]
+warning_kinds = ["unknown_key"]
+warning_count = 1

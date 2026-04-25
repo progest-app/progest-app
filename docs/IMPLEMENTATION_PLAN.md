@@ -10,7 +10,7 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-25（M3 kickoff: `docs/SEARCH_DSL.md` + `docs/M3_HANDOFF.md` 初版 landed、Tauri IPC を M3 で同時実装することと lindera は v1.x defer する方針を明示）
+最終更新: 2026-04-25（M3 #2 landed: `core::search` parser + AST + validate + planner pipeline + 8 golden = 80 test pass、chrono を workspace 依存に追加）
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
@@ -41,7 +41,8 @@
   - [ ] `progest undo` / `redo` の tag_add / tag_remove / meta_edit / import 対応 — 各 op 発行側（M4 import 等）着手時に合流
 - **M3 検索とビュー**: 進行中。`core::search` + FTS5 + コマンドパレット UI + tree/flat view + ディレクトリインスペクター + `is:misplaced` + views.toml + CLI `search`/`tag` + Tauri IPC 同時実装。詳細は §5 M3、進行中の引き継ぎは [`docs/M3_HANDOFF.md`](./M3_HANDOFF.md)。
   - [x] DSL 仕様書 [`docs/SEARCH_DSL.md`](./SEARCH_DSL.md) — 文法 EBNF / 予約キー全 8 種 / 自由テキスト FTS5 trigram / カスタムフィールド / 性能契約 (10k=50ms / 100k=100ms p95) / Worked examples 8 / v1.x defer 候補（feat/m3-search-dsl-spec）
-  - [ ] `core::search` parser + AST + planner + executor — DSL 仕様書 §10 の Worked examples を golden に
+  - [x] `core::search` parser + AST + validate + planner — `progest_core::search::{ast, lex, parse, validate, plan}` の 4 段純関数 pipeline、`Warning` 列挙 + `AlwaysFalse` 短絡（unknown_key / type_mismatch / kind 値不正 / glob 不正 / datetime 不正 / `created`/`updated` 重複 / `type:` AND 多重）、`BindValue` 化 SQL 出力。chrono 依存追加（`Z` / `±HH:MM` 両対応 + UTC 正規化）。72 unit + 8 golden（§10 examples 1:1）= 80 test pass（feat/m3-core-search-parser）
+  - [ ] `core::search` executor — `PlannedQuery.sql` を SQLite で実行、`Vec<SearchHit>` を返す（M3 #4 と同 PR 想定）
   - [ ] `core::index::fts5` + `custom_fields` テーブル — M1 `core::index` の migration に追記
   - [ ] CLI `progest search` / `progest tag` / `progest view`（save/delete/list）
   - [ ] shadcn/ui 初期化 + コマンドパレット + tree/flat view + ディレクトリインスペクター + placement バッジ

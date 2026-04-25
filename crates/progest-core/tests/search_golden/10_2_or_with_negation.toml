@@ -1,0 +1,13 @@
+name = "10.2 (tag OR tag) -is:violation"
+query = "(tag:wip OR tag:review) -is:violation"
+
+[expected]
+sql_contains = [
+  " OR ",
+  " AND ",
+  "NOT ",
+  "has_naming_violation",
+  "has_placement_violation",
+]
+text_params = ["wip", "review"]
+warning_count = 0

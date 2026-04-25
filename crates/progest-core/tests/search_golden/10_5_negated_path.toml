@@ -1,0 +1,11 @@
+name = "10.5 type + negated path glob"
+query = 'type:psd -path:"./assets/shots/archive/**"'
+
+[expected]
+sql_contains = [
+  "f.ext = ?",
+  "NOT ",
+  "f.path GLOB ?",
+]
+text_params = ["psd", "./assets/shots/archive/**"]
+warning_count = 0

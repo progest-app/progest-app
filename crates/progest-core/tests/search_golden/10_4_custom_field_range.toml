@@ -1,0 +1,24 @@
+name = "10.4 scene + shot + status"
+query = "scene:10 shot:1..20 status:wip"
+
+[schema.scene]
+type = "int"
+
+[schema.shot]
+type = "int"
+
+[schema.status]
+type = "enum"
+values = ["wip", "review", "approved"]
+
+[expected]
+sql_contains = [
+  "custom_fields",
+  "cf.value_int = ?",
+  "cf.value_int >= ?",
+  "cf.value_int <= ?",
+  "cf.value_text = ?",
+]
+text_params = ["scene", "shot", "status", "wip"]
+int_params = [10, 1, 20]
+warning_count = 0

@@ -21,6 +21,7 @@ pub mod project;
 pub mod reconcile;
 pub mod rename;
 pub mod rules;
+pub mod search;
 pub mod sequence;
 pub mod watch;
 

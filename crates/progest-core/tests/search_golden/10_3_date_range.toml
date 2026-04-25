@@ -1,0 +1,15 @@
+name = "10.3 date range (full closed)"
+query = "type:psd updated:2026-04-01..2026-04-25"
+
+[expected]
+sql_contains = [
+  "f.ext = ?",
+  "f.updated_at >= ?",
+  "f.updated_at <= ?",
+]
+text_params = [
+  "psd",
+  "2026-04-01T00:00:00Z",
+  "2026-04-25T23:59:59.999Z",
+]
+warning_count = 0
