@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use super::document::ProjectError;
 use super::layout::{
     DOT_DIR, HISTORY_DB_FILENAME, INDEX_DB_FILENAME, LOCAL_DIR, PROJECT_TOML_FILENAME,
-    RULES_TOML_FILENAME, SCHEMA_TOML_FILENAME, USER_IGNORE_FILENAME,
+    RULES_TOML_FILENAME, SCHEMA_TOML_FILENAME, USER_IGNORE_FILENAME, VIEWS_TOML_FILENAME,
 };
 
 /// Absolute path to a discovered project root.
@@ -106,6 +106,15 @@ impl ProjectRoot {
     #[must_use]
     pub fn schema_toml(&self) -> PathBuf {
         self.dot_dir().join(SCHEMA_TOML_FILENAME)
+    }
+
+    /// Absolute path of `.progest/views.toml`.
+    ///
+    /// Optional: absent means "no shared saved views — CLI/UI uses
+    /// ad-hoc queries only".
+    #[must_use]
+    pub fn views_toml(&self) -> PathBuf {
+        self.dot_dir().join(VIEWS_TOML_FILENAME)
     }
 }
 

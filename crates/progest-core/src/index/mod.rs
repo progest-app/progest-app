@@ -23,4 +23,7 @@ pub mod store;
 pub use error::IndexError;
 pub use migration::{MIGRATIONS, Migration, MigrationError, apply, current_version};
 pub use row::FileRow;
-pub use store::{Index, SqliteIndex};
+pub use store::{
+    CustomFieldEntry, CustomFieldValue, Index, RichRow, SearchProjection, SqliteIndex,
+    ViolationCounts, ViolationRecord,
+};

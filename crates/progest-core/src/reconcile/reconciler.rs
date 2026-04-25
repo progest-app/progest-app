@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::fs::{EntryKind, FileSystem, IgnoreRules, Metadata, ProjectPath, ScanEntry, Scanner};
 use crate::identity::{FileId, Fingerprint, compute_fingerprint};
-use crate::index::{FileRow, Index};
+use crate::index::{FileRow, Index, SearchProjection};
 use crate::meta::{Kind, MetaDocument, MetaStore, SIDECAR_SUFFIX, Status, sidecar_path};
 
 use super::change_set::{ChangeSet, FsEvent};
@@ -174,6 +174,7 @@ impl<'a> Reconciler<'a> {
                         row.size = Some(entry.size);
                         row.mtime = Some(system_time_to_unix(entry.mtime));
                         self.index.upsert_file(&row)?;
+                        self.write_search_projection(&row, None)?;
                         outcomes.push(ReconcileOutcome::Updated {
                             file_id: old_file_id,
                             path: to.clone(),
@@ -216,6 +217,7 @@ impl<'a> Reconciler<'a> {
             updated.size = Some(entry.size);
             updated.mtime = Some(entry_mtime);
             self.index.upsert_file(&updated)?;
+            self.write_search_projection(&updated, None)?;
             return Ok(ReconcileOutcome::Updated {
                 file_id: updated.file_id,
                 path: path.clone(),
@@ -254,10 +256,40 @@ impl<'a> Reconciler<'a> {
             last_seen_at: None,
         };
         self.index.upsert_file(&row)?;
+        // Try to load the freshly-saved (or pre-existing) sidecar so
+        // we can mirror `notes` into the search projection. Failures
+        // are non-fatal — the row is already inserted.
+        let notes = self
+            .meta
+            .load(&sidecar)
+            .ok()
+            .and_then(|d| d.notes)
+            .map(|n| n.body);
+        self.write_search_projection(&row, notes)?;
         Ok(ReconcileOutcome::Added {
             file_id,
             path: path.clone(),
         })
+    }
+
+    /// Compute and persist the search-projection columns
+    /// (`name` / `ext` / `notes` / `updated_at` / `is_orphan`) for
+    /// `row`. `notes` is supplied by the caller when it has the
+    /// sidecar in hand; otherwise it stays untouched (None →
+    /// previous value is overwritten with NULL, which is fine for
+    /// search since the FTS5 trigger collapses NULL → '').
+    ///
+    /// `is_orphan` is always `false` here — orphans are tracked via
+    /// `ScanReport::orphan_metas` and don't reach this code path.
+    /// A future PR will surface them in `files` as orphan rows.
+    fn write_search_projection(
+        &self,
+        row: &FileRow,
+        notes: Option<String>,
+    ) -> Result<(), ReconcileError> {
+        let proj = build_search_projection(row, notes);
+        self.index.set_search_projection(&row.file_id, &proj)?;
+        Ok(())
     }
 
     /// Resolve a `ProjectPath` into a [`ScanEntry`] by reading filesystem
@@ -323,6 +355,31 @@ impl<'a> Reconciler<'a> {
 /// Return `true` when `path` looks like a `.meta` sidecar.
 fn is_sidecar(path: &ProjectPath) -> bool {
     path.as_str().ends_with(SIDECAR_SUFFIX)
+}
+
+/// Build the search-projection columns from a freshly-upserted
+/// [`FileRow`]. `name` and `ext` come from the path basename;
+/// `updated_at` is the row's mtime formatted as RFC 3339 UTC;
+/// `notes` is whatever the caller could load from the sidecar (or
+/// `None`). `is_orphan` is always `false` here — orphan tracking
+/// for the search projection is a future PR.
+fn build_search_projection(row: &FileRow, notes: Option<String>) -> SearchProjection {
+    let name = row.path.file_name().map(str::to_string);
+    let ext = row.path.extension().map(str::to_ascii_lowercase);
+    let updated_at = row.mtime.and_then(unix_to_iso);
+    SearchProjection {
+        name,
+        ext,
+        notes,
+        updated_at,
+        is_orphan: false,
+    }
+}
+
+/// Format a Unix-second timestamp as `YYYY-MM-DDTHH:MM:SSZ` in UTC.
+fn unix_to_iso(seconds: i64) -> Option<String> {
+    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0)?;
+    Some(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
 /// Strip the `.meta` suffix from a sidecar path, yielding the companion file

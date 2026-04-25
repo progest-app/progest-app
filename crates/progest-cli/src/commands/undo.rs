@@ -58,7 +58,7 @@ pub fn run(cwd: &Path, args: &UndoRedoArgs) -> Result<i32> {
     // Peek at the target entry without flipping consumed yet.
     let target = peek_target(&history, args.direction)?;
     let Some(target) = target else {
-        emit_nothing(&args.format, args.direction);
+        emit_nothing(args.format, args.direction);
         return Ok(0);
     };
 
@@ -99,7 +99,7 @@ pub fn run(cwd: &Path, args: &UndoRedoArgs) -> Result<i32> {
         });
     }
 
-    emit(&args.format, args.direction, &replayed);
+    emit(args.format, args.direction, &replayed);
     Ok(0)
 }
 
@@ -209,7 +209,7 @@ struct ReportRow {
     group_id: Option<String>,
 }
 
-fn emit_nothing(fmt: &OutputFormat, dir: Direction) {
+fn emit_nothing(fmt: OutputFormat, dir: Direction) {
     match fmt {
         OutputFormat::Text => println!("(nothing to {})", dir.label()),
         OutputFormat::Json => {
@@ -220,7 +220,7 @@ fn emit_nothing(fmt: &OutputFormat, dir: Direction) {
     }
 }
 
-fn emit(fmt: &OutputFormat, dir: Direction, rows: &[ReportRow]) {
+fn emit(fmt: OutputFormat, dir: Direction, rows: &[ReportRow]) {
     match fmt {
         OutputFormat::Text => {
             println!(

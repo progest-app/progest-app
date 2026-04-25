@@ -23,6 +23,7 @@ pub mod rename;
 pub mod rules;
 pub mod search;
 pub mod sequence;
+pub mod tag;
 pub mod watch;
 
 /// The crate version, synced with the workspace.

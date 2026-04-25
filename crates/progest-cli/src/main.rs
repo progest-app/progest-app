@@ -4,8 +4,6 @@
 //! should be backed by a `progest-core` API with identical behaviour.
 //! See `docs/REQUIREMENTS.md` §3.9 for the full command surface.
 
-#![allow(clippy::todo)] // scaffold: Search populated in M3.
-
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -15,7 +13,10 @@ use clap::{Parser, Subcommand};
 use commands::clean::{CaseFlag, CleanArgs, FillFlag};
 use commands::lint::LintArgs;
 use commands::rename::{RenameArgs, RenameMode};
+use commands::search::SearchArgs;
+use commands::tag::{TagArgs, TagCommand};
 use commands::undo::{Direction as UndoDirection, UndoRedoArgs};
+use commands::view::{ViewArgs, ViewCommand};
 use output::OutputFormat;
 
 mod commands;
@@ -124,7 +125,27 @@ enum Command {
     /// Search files using the Progest query DSL.
     Search {
         /// The query string (e.g. `tag:character type:psd is:violation`).
-        query: String,
+        /// Either `query` or `--view` must be provided.
+        query: Option<String>,
+        /// Use the saved view of this id (from `.progest/views.toml`).
+        #[arg(long)]
+        view: Option<String>,
+        /// Output format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+        /// Print validator warnings to stderr (text mode only).
+        #[arg(long)]
+        explain: bool,
+    },
+    /// Manage per-file tags.
+    Tag {
+        #[command(subcommand)]
+        op: TagOp,
+    },
+    /// Manage saved views in `.progest/views.toml`.
+    View {
+        #[command(subcommand)]
+        op: ViewOp,
     },
     /// Undo the top of the history stack. Default unwinds the whole
     /// `group_id` (a bulk rename / sequence); `--entry` limits to one.
@@ -142,6 +163,62 @@ enum Command {
         #[arg(long)]
         entry: bool,
         /// Output format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum TagOp {
+    /// Add a tag to one or more files.
+    Add {
+        tag: String,
+        #[arg(value_name = "FILE", required = true)]
+        files: Vec<PathBuf>,
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+    /// Remove a tag from one or more files.
+    Remove {
+        tag: String,
+        #[arg(value_name = "FILE", required = true)]
+        files: Vec<PathBuf>,
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+    /// List the tags attached to one or more files.
+    List {
+        #[arg(value_name = "FILE", required = true)]
+        files: Vec<PathBuf>,
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ViewOp {
+    /// Save (or replace) a view by id.
+    Save {
+        id: String,
+        #[arg(long)]
+        query: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        group_by: Option<String>,
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+    /// Delete a view by id.
+    Delete {
+        id: String,
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+    /// List all saved views.
+    List {
         #[arg(long, default_value = "text", value_enum)]
         format: OutputFormat,
     },
@@ -242,7 +319,69 @@ fn main() -> Result<ExitCode> {
             )?;
             Ok(to_exit_code(code))
         }
-        Command::Search { query: _ } => todo!("M3: DSL parser + FTS5 query"),
+        Command::Search {
+            query,
+            view,
+            format,
+            explain,
+        } => {
+            let code = commands::search::run(
+                &cwd,
+                &SearchArgs {
+                    query,
+                    view,
+                    format,
+                    explain,
+                },
+            )?;
+            Ok(to_exit_code(code))
+        }
+        Command::Tag { op } => {
+            let (cmd, format) = match op {
+                TagOp::Add { tag, files, format } => (TagCommand::Add { tag, files }, format),
+                TagOp::Remove { tag, files, format } => (TagCommand::Remove { tag, files }, format),
+                TagOp::List { files, format } => (TagCommand::List { files }, format),
+            };
+            let code = commands::tag::run(
+                &cwd,
+                &TagArgs {
+                    command: cmd,
+                    format,
+                },
+            )?;
+            Ok(to_exit_code(code))
+        }
+        Command::View { op } => {
+            let (cmd, format) = match op {
+                ViewOp::Save {
+                    id,
+                    query,
+                    name,
+                    description,
+                    group_by,
+                    format,
+                } => (
+                    ViewCommand::Save {
+                        id,
+                        name,
+                        query,
+                        description,
+                        group_by,
+                    },
+                    format,
+                ),
+                ViewOp::Delete { id, format } => (ViewCommand::Delete { id }, format),
+                ViewOp::List { format } => (ViewCommand::List, format),
+            };
+            let code = commands::view::run(
+                &cwd,
+                &ViewArgs {
+                    command: cmd,
+                    format,
+                },
+            )?;
+            Ok(to_exit_code(code))
+        }
         Command::Undo { entry, format } => {
             let code = commands::undo::run(
                 &cwd,

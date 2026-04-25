@@ -3,11 +3,19 @@
 //! Runs a [`PlannedQuery`] against a `SQLite` connection that has the
 //! M3 search migration applied (`core::index` migration 0002). Returns
 //! a deterministic list of [`SearchHit`]s — minimal `(file_id, path)`
-//! pairs. Richer projection (tags, custom fields, violations) is
-//! the CLI / IPC layer's job (M3 #5).
+//! pairs.
+//!
+//! [`project_hits`] joins each hit back to the rich shape declared in
+//! `docs/SEARCH_DSL.md` §8.1 (tags / violations / custom fields).
+//! CLI and Tauri IPC both call it for serialized output.
 
 use rusqlite::{Connection, ToSql, types::ToSqlOutput, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
+
+use crate::identity::FileId;
+use crate::index::{
+    CustomFieldEntry, CustomFieldValue, Index, IndexError, RichRow, ViolationCounts,
+};
 
 use super::plan::{BindValue, PlannedQuery};
 
@@ -24,6 +32,91 @@ pub struct SearchHit {
 pub enum ExecuteError {
     #[error("sqlite error while executing search: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("index error while projecting search hits: {0}")]
+    Index(#[from] IndexError),
+    #[error("malformed file_id in row: {0}")]
+    MalformedFileId(String),
+}
+
+/// Rich search hit shape — mirrors `docs/SEARCH_DSL.md` §8.1.
+///
+/// Returned by [`project_hits`] after augmenting the minimal
+/// [`SearchHit`] with tags, violation summary, and custom fields via
+/// the [`Index`] API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RichSearchHit {
+    pub file_id: String,
+    pub path: String,
+    pub name: Option<String>,
+    pub kind: String,
+    pub ext: Option<String>,
+    pub tags: Vec<String>,
+    pub violations: RichViolationCounts,
+    pub custom_fields: Vec<RichCustomField>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RichViolationCounts {
+    pub naming: u32,
+    pub placement: u32,
+    pub sequence: u32,
+}
+
+impl From<ViolationCounts> for RichViolationCounts {
+    fn from(c: ViolationCounts) -> Self {
+        Self {
+            naming: c.naming,
+            placement: c.placement,
+            sequence: c.sequence,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RichCustomField {
+    pub key: String,
+    #[serde(flatten)]
+    pub value: RichCustomValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
+pub enum RichCustomValue {
+    Text(String),
+    Integer(i64),
+}
+
+impl From<CustomFieldValue> for RichCustomValue {
+    fn from(v: CustomFieldValue) -> Self {
+        match v {
+            CustomFieldValue::Text(s) => RichCustomValue::Text(s),
+            CustomFieldValue::Integer(n) => RichCustomValue::Integer(n),
+        }
+    }
+}
+
+impl From<CustomFieldEntry> for RichCustomField {
+    fn from(e: CustomFieldEntry) -> Self {
+        RichCustomField {
+            key: e.key,
+            value: e.value.into(),
+        }
+    }
+}
+
+impl From<RichRow> for RichSearchHit {
+    fn from(r: RichRow) -> Self {
+        RichSearchHit {
+            file_id: r.file_id,
+            path: r.path,
+            name: r.name,
+            kind: r.kind,
+            ext: r.ext,
+            tags: r.tags,
+            violations: r.violations.into(),
+            custom_fields: r.custom_fields.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 impl ToSql for BindValue {
@@ -69,6 +162,31 @@ pub fn execute(conn: &Connection, planned: &PlannedQuery) -> Result<Vec<SearchHi
         out.push(r?);
     }
     Ok(out)
+}
+
+/// Augment a list of [`SearchHit`]s with the rich projection (tags,
+/// violation counts, custom fields) needed for the §8.1 JSON output.
+///
+/// Order is preserved (one [`RichSearchHit`] per input hit). Hits whose
+/// `file_id` doesn't exist anymore (e.g. concurrent delete between
+/// `execute` and `project_hits`) are silently dropped.
+pub fn project_hits(
+    index: &dyn Index,
+    hits: &[SearchHit],
+) -> Result<Vec<RichSearchHit>, ExecuteError> {
+    if hits.is_empty() {
+        return Ok(Vec::new());
+    }
+    let file_ids: Vec<FileId> = hits
+        .iter()
+        .map(|h| {
+            h.file_id
+                .parse::<FileId>()
+                .map_err(|_| ExecuteError::MalformedFileId(h.file_id.clone()))
+        })
+        .collect::<Result<_, _>>()?;
+    let rich = index.rich_rows(&file_ids)?;
+    Ok(rich.into_iter().map(RichSearchHit::from).collect())
 }
 
 // ---------------------------------------------------------------- tests

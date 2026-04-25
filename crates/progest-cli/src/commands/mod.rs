@@ -16,4 +16,7 @@ pub mod init;
 pub mod lint;
 pub mod rename;
 pub mod scan;
+pub mod search;
+pub mod tag;
 pub mod undo;
+pub mod view;

@@ -60,6 +60,94 @@ pub trait Index: Send + Sync {
     /// Tags associated with `file_id`, sorted lexicographically for stable
     /// diffs and cache keys.
     fn list_tags_for_file(&self, file_id: &FileId) -> Result<Vec<String>, IndexError>;
+
+    /// Update the search-projection columns (`name`, `ext`, `notes`,
+    /// `updated_at`, `is_orphan`) that migration 0002 added to `files`.
+    /// Reconcile calls this after `upsert_file`; other callers leave it
+    /// alone. The previous value is replaced (not merged).
+    fn set_search_projection(
+        &self,
+        file_id: &FileId,
+        proj: &SearchProjection,
+    ) -> Result<(), IndexError>;
+
+    /// Replace the violations for `file_id` with `violations`. An empty
+    /// slice clears violations for the file. Atomic per file.
+    fn replace_violations(
+        &self,
+        file_id: &FileId,
+        violations: &[ViolationRecord],
+    ) -> Result<(), IndexError>;
+
+    /// Set the typed value of one custom field on a file. `None` clears it.
+    fn set_custom_field(
+        &self,
+        file_id: &FileId,
+        key: &str,
+        value: Option<&CustomFieldValue>,
+    ) -> Result<(), IndexError>;
+
+    /// Lookup the rich projection (tags + violations + custom fields)
+    /// for the given `file_id`s. Returns one [`RichRow`] per matched
+    /// `file_id` (silently skips unknown ids). Used by
+    /// [`crate::search::execute::project_hits`].
+    fn rich_rows(&self, file_ids: &[FileId]) -> Result<Vec<RichRow>, IndexError>;
+}
+
+/// Search-projection columns written by reconcile after `upsert_file`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SearchProjection {
+    pub name: Option<String>,
+    pub ext: Option<String>,
+    pub notes: Option<String>,
+    pub updated_at: Option<String>,
+    pub is_orphan: bool,
+}
+
+/// One violations row owned by the index's `violations` table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViolationRecord {
+    pub category: String,
+    pub severity: String,
+    pub rule_id: String,
+    pub message: Option<String>,
+}
+
+/// Typed value for a custom field. The `core::search` planner reads
+/// these via the `value_text` / `value_int` columns; reconcile / import
+/// chooses which slot based on the schema.toml field type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CustomFieldValue {
+    Text(String),
+    Integer(i64),
+}
+
+/// Rich projection of a single file row used by
+/// `core::search::execute::project_hits`. Mirrors `docs/SEARCH_DSL.md`
+/// §8.1 JSON shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RichRow {
+    pub file_id: String,
+    pub path: String,
+    pub name: Option<String>,
+    pub kind: String,
+    pub ext: Option<String>,
+    pub tags: Vec<String>,
+    pub violations: ViolationCounts,
+    pub custom_fields: Vec<CustomFieldEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ViolationCounts {
+    pub naming: u32,
+    pub placement: u32,
+    pub sequence: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomFieldEntry {
+    pub key: String,
+    pub value: CustomFieldValue,
 }
 
 /// `SQLite`-backed [`Index`] implementation.
@@ -105,6 +193,13 @@ impl SqliteIndex {
     fn with_conn<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
         let guard = self.conn.lock().expect("index connection mutex poisoned");
         f(&guard)
+    }
+
+    /// Run a closure with the underlying [`rusqlite::Connection`].
+    /// Public seam for `core::search::execute` (the planned-SQL
+    /// executor needs a `&Connection` and borrows it briefly).
+    pub fn with_connection<R>(&self, f: impl FnOnce(&Connection) -> R) -> R {
+        self.with_conn(f)
     }
 }
 
@@ -227,6 +322,181 @@ impl Index for SqliteIndex {
             let mut out = Vec::new();
             for row in rows {
                 out.push(row?);
+            }
+            Ok(out)
+        })
+    }
+
+    fn set_search_projection(
+        &self,
+        file_id: &FileId,
+        proj: &SearchProjection,
+    ) -> Result<(), IndexError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE files SET name = ?2, ext = ?3, notes = ?4, updated_at = ?5, \
+                 is_orphan = ?6 WHERE file_id = ?1",
+                params![
+                    file_id.to_string(),
+                    proj.name,
+                    proj.ext,
+                    proj.notes,
+                    proj.updated_at,
+                    i64::from(proj.is_orphan),
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn replace_violations(
+        &self,
+        file_id: &FileId,
+        violations: &[ViolationRecord],
+    ) -> Result<(), IndexError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM violations WHERE file_id = ?1",
+                params![file_id.to_string()],
+            )?;
+            let mut stmt = conn.prepare(
+                "INSERT INTO violations (file_id, category, severity, rule_id, message) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for v in violations {
+                stmt.execute(params![
+                    file_id.to_string(),
+                    v.category,
+                    v.severity,
+                    v.rule_id,
+                    v.message,
+                ])?;
+            }
+            Ok(())
+        })
+    }
+
+    fn set_custom_field(
+        &self,
+        file_id: &FileId,
+        key: &str,
+        value: Option<&CustomFieldValue>,
+    ) -> Result<(), IndexError> {
+        self.with_conn(|conn| match value {
+            None => {
+                conn.execute(
+                    "DELETE FROM custom_fields WHERE file_id = ?1 AND key = ?2",
+                    params![file_id.to_string(), key],
+                )?;
+                Ok(())
+            }
+            Some(CustomFieldValue::Text(s)) => {
+                conn.execute(
+                    "INSERT INTO custom_fields (file_id, key, value_text, value_int) \
+                     VALUES (?1, ?2, ?3, NULL) \
+                     ON CONFLICT(file_id, key) DO UPDATE SET \
+                         value_text = excluded.value_text, value_int = NULL",
+                    params![file_id.to_string(), key, s],
+                )?;
+                Ok(())
+            }
+            Some(CustomFieldValue::Integer(n)) => {
+                conn.execute(
+                    "INSERT INTO custom_fields (file_id, key, value_text, value_int) \
+                     VALUES (?1, ?2, NULL, ?3) \
+                     ON CONFLICT(file_id, key) DO UPDATE SET \
+                         value_text = NULL, value_int = excluded.value_int",
+                    params![file_id.to_string(), key, n],
+                )?;
+                Ok(())
+            }
+        })
+    }
+
+    fn rich_rows(&self, file_ids: &[FileId]) -> Result<Vec<RichRow>, IndexError> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(|conn| {
+            let mut out = Vec::with_capacity(file_ids.len());
+            for fid in file_ids {
+                let fid_str = fid.to_string();
+                let row: Option<(Option<String>, Option<String>, String, String)> = conn
+                    .query_row(
+                        "SELECT name, ext, kind, path FROM files WHERE file_id = ?1",
+                        params![fid_str],
+                        |r| {
+                            Ok((
+                                r.get::<_, Option<String>>(0)?,
+                                r.get::<_, Option<String>>(1)?,
+                                r.get::<_, String>(2)?,
+                                r.get::<_, String>(3)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+                let Some((name, ext, kind, path)) = row else {
+                    continue;
+                };
+
+                let mut tags_stmt =
+                    conn.prepare("SELECT tag FROM tags WHERE file_id = ?1 ORDER BY tag")?;
+                let tags: Vec<String> = tags_stmt
+                    .query_map(params![fid_str], |r| r.get::<_, String>(0))?
+                    .filter_map(Result::ok)
+                    .collect();
+
+                let mut viol_stmt = conn.prepare(
+                    "SELECT category, COUNT(*) FROM violations \
+                     WHERE file_id = ?1 AND severity IN ('strict','warn') \
+                     GROUP BY category",
+                )?;
+                let mut counts = ViolationCounts::default();
+                let viol_rows = viol_stmt.query_map(params![fid_str], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?))
+                })?;
+                for vr in viol_rows {
+                    let (cat, n) = vr?;
+                    match cat.as_str() {
+                        "naming" => counts.naming = n,
+                        "placement" => counts.placement = n,
+                        "sequence" => counts.sequence = n,
+                        _ => {}
+                    }
+                }
+
+                let mut cf_stmt = conn.prepare(
+                    "SELECT key, value_text, value_int FROM custom_fields \
+                     WHERE file_id = ?1 ORDER BY key",
+                )?;
+                let cf_rows = cf_stmt.query_map(params![fid_str], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                })?;
+                let mut custom_fields = Vec::new();
+                for cf in cf_rows {
+                    let (key, text, int) = cf?;
+                    let value = match (text, int) {
+                        (Some(t), _) => CustomFieldValue::Text(t),
+                        (_, Some(n)) => CustomFieldValue::Integer(n),
+                        _ => continue,
+                    };
+                    custom_fields.push(CustomFieldEntry { key, value });
+                }
+
+                out.push(RichRow {
+                    file_id: fid_str,
+                    path,
+                    name,
+                    kind,
+                    ext,
+                    tags,
+                    violations: counts,
+                    custom_fields,
+                });
             }
             Ok(out)
         })

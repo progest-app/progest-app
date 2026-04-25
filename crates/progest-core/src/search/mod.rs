@@ -13,9 +13,13 @@ pub mod lex;
 pub mod parse;
 pub mod plan;
 pub mod validate;
+pub mod views;
 
 pub use ast::{Atom, Clause, Expr, Query, Value};
-pub use execute::{ExecuteError, SearchHit, execute};
+pub use execute::{
+    ExecuteError, RichCustomField, RichCustomValue, RichSearchHit, RichViolationCounts, SearchHit,
+    execute, project_hits,
+};
 pub use lex::{LexError, Spanned, Token, tokenize};
 pub use parse::{ParseError, parse};
 pub use plan::{BindValue, PlannedQuery, plan};

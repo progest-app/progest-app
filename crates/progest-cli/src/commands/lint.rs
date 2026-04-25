@@ -20,14 +20,15 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use progest_core::fs::StdFileSystem;
-use progest_core::lint::{LintOptions, LintReport, lint_paths};
+use progest_core::index::Index;
+use progest_core::lint::{LintOptions, LintReport, lint_paths, write_to_index};
 use progest_core::meta::StdMetaStore;
 use progest_core::rules::{BUILTIN_COMPOUND_EXTS, Severity, Violation};
 use serde::Serialize;
 
 use crate::context::{
     CleanupOverrides, discover_root, load_alias_catalog_from_root, load_cleanup_config,
-    load_ruleset,
+    load_ruleset, open_index,
 };
 use crate::output::{OutputFormat, emit_json};
 use crate::walk::collect_entries;
@@ -63,6 +64,21 @@ pub fn run(cwd: &Path, args: &LintArgs) -> Result<i32> {
     };
     let report =
         lint_paths(store.filesystem(), &store, &paths, &opts).context("running lint pass")?;
+
+    // Persist results into the search index so `is:violation` /
+    // `is:misplaced` queries see the latest state. Failures here
+    // are non-fatal — the lint output is still emitted, but stderr
+    // gets a warning so users can investigate. (Index drift is
+    // recoverable: any subsequent lint run rewrites the rows.)
+    let index = open_index(&root).context("opening index for violations writer")?;
+    let visited: Vec<_> = paths
+        .iter()
+        .filter_map(|p| index.get_file_by_path(p).ok().flatten())
+        .map(|row| row.file_id)
+        .collect();
+    if let Err(e) = write_to_index(&index, &visited, &report) {
+        eprintln!("warning: failed to update violations index: {e}");
+    }
 
     match args.format {
         OutputFormat::Text => emit_text(&report),

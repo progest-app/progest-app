@@ -97,10 +97,10 @@ pub fn run(cwd: &Path, args: &RenameArgs) -> Result<i32> {
 
     match args.mode {
         RenameMode::Preview => {
-            emit_preview(&preview, &args.format)?;
+            emit_preview(&preview, args.format)?;
             Ok(0)
         }
-        RenameMode::Apply => apply_preview(&root, &preview, &args.format),
+        RenameMode::Apply => apply_preview(&root, &preview, args.format),
     }
 }
 
@@ -216,7 +216,7 @@ struct PreviewSummary {
     conflicting: usize,
 }
 
-fn emit_preview(preview: &RenamePreview, format: &OutputFormat) -> Result<()> {
+fn emit_preview(preview: &RenamePreview, format: OutputFormat) -> Result<()> {
     let summary = PreviewSummary {
         total: preview.ops.len(),
         clean: preview.clean_ops().count(),
@@ -276,11 +276,7 @@ struct AppliedPath<'a> {
     to: &'a ProjectPath,
 }
 
-fn apply_preview(
-    root: &ProjectRoot,
-    preview: &RenamePreview,
-    format: &OutputFormat,
-) -> Result<i32> {
+fn apply_preview(root: &ProjectRoot, preview: &RenamePreview, format: OutputFormat) -> Result<i32> {
     if !preview.is_clean() {
         emit_preview(preview, format)?;
         eprintln!(
@@ -300,7 +296,7 @@ fn apply_preview(
     Ok(0)
 }
 
-fn emit_apply(outcome: &ApplyOutcome, format: &OutputFormat) -> Result<()> {
+fn emit_apply(outcome: &ApplyOutcome, format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Text => emit_apply_text(outcome),
         OutputFormat::Json => emit_apply_json(outcome)?,

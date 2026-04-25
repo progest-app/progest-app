@@ -16,7 +16,7 @@ use clap::ValueEnum;
 use serde::Serialize;
 
 /// Output format selector shared across reporting subcommands.
-#[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutputFormat {
     Text,
     Json,

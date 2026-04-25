@@ -29,6 +29,10 @@ pub const RULES_TOML_FILENAME: &str = "rules.toml";
 /// absent means "use the builtin alias catalog only").
 pub const SCHEMA_TOML_FILENAME: &str = "schema.toml";
 
+/// Name of the saved-views TOML file (optional; absent means
+/// "no project-shared views, only ad-hoc CLI / UI queries").
+pub const VIEWS_TOML_FILENAME: &str = "views.toml";
+
 /// Name of the user-editable ignore rules file (gitignore syntax).
 pub const USER_IGNORE_FILENAME: &str = "ignore";
 

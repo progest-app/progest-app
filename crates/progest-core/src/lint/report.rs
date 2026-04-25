@@ -64,4 +64,14 @@ impl LintReport {
     pub fn total(&self) -> usize {
         self.naming.len() + self.placement.len() + self.sequence.len()
     }
+
+    /// Iterate every [`Violation`] in the report, naming → placement
+    /// → sequence order. Convenience for consumers (e.g. the index
+    /// writer) that want a single flat pass.
+    pub fn iter_all(&self) -> impl Iterator<Item = &Violation> {
+        self.naming
+            .iter()
+            .chain(self.placement.iter())
+            .chain(self.sequence.iter())
+    }
 }
