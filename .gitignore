@@ -46,3 +46,7 @@ desktop.ini
 # Local scratch
 /scratch
 /tmp
+# Seed output written by `scripts/seed/<pattern>.sh`. Already covered
+# by `/tmp` above but kept here so contributors can see at a glance
+# why the directory is intentionally ignored.
+/tmp/seed
