@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
-use progest_core::fs::{EntryKind, IgnoreRules, ProjectPath, ScanEntry, Scanner, StdFileSystem};
+use progest_core::fs::{ProjectPath, ScanEntry, StdFileSystem};
 use progest_core::history::SqliteStore as HistoryStore;
 use progest_core::index::SqliteIndex;
 use progest_core::naming::{
@@ -45,6 +45,7 @@ use uuid::Uuid;
 use crate::context::{CleanupOverrides, discover_root, load_cleanup_config};
 use crate::output::{OutputFormat, emit_json};
 use crate::prompter::StdinHolePrompter;
+use crate::walk::collect_entries;
 
 // --- CLI flag types --------------------------------------------------------
 
@@ -159,45 +160,6 @@ fn build_fill_mode(args: &CleanArgs) -> FillMode {
         // stdin. Use `progest rename` for interactive resolution.
         FillFlag::Skip | FillFlag::Prompt => FillMode::Skip,
     }
-}
-
-fn collect_entries(root: &ProjectRoot, paths: &[PathBuf]) -> Result<Vec<ScanEntry>> {
-    let fs = StdFileSystem::new(root.root().to_path_buf());
-    let rules = IgnoreRules::load(&fs).with_context(|| {
-        format!(
-            "failed to load ignore rules from `{}`",
-            root.root().display()
-        )
-    })?;
-    let scanner = Scanner::new(root.root().to_path_buf(), rules);
-
-    let mut out = Vec::new();
-    for entry in scanner {
-        let entry = entry.context("scan walk failed")?;
-        if !matches!(entry.kind, EntryKind::File) {
-            continue;
-        }
-        if !paths.is_empty() && !entry_matches_filter(&entry, paths, root.root()) {
-            continue;
-        }
-        out.push(entry);
-    }
-    Ok(out)
-}
-
-fn entry_matches_filter(entry: &ScanEntry, paths: &[PathBuf], root: &Path) -> bool {
-    paths.iter().any(|p| {
-        let abs = if p.is_absolute() {
-            p.clone()
-        } else {
-            root.join(p)
-        };
-        let Ok(rel) = abs.strip_prefix(root) else {
-            return false;
-        };
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        entry.path.as_str().starts_with(rel_str.as_str())
-    })
 }
 
 // --- Report ----------------------------------------------------------------

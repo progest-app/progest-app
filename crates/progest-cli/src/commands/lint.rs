@@ -15,13 +15,13 @@
 //! regardless of exit code, so `progest lint --format json | jq ...`
 //! works uniformly on clean and dirty trees.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use progest_core::fs::{EntryKind, IgnoreRules, ScanEntry, Scanner, StdFileSystem};
+use progest_core::fs::StdFileSystem;
 use progest_core::lint::{LintOptions, LintReport, lint_paths};
 use progest_core::meta::StdMetaStore;
-use progest_core::project::ProjectRoot;
 use progest_core::rules::{BUILTIN_COMPOUND_EXTS, Severity, Violation};
 use serde::Serialize;
 
@@ -30,6 +30,7 @@ use crate::context::{
     load_ruleset,
 };
 use crate::output::{OutputFormat, emit_json};
+use crate::walk::collect_entries;
 
 pub struct LintArgs {
     pub paths: Vec<PathBuf>,
@@ -69,45 +70,6 @@ pub fn run(cwd: &Path, args: &LintArgs) -> Result<i32> {
     }
 
     Ok(i32::from(report.fails_ci()))
-}
-
-fn collect_entries(root: &ProjectRoot, paths: &[PathBuf]) -> Result<Vec<ScanEntry>> {
-    let fs = StdFileSystem::new(root.root().to_path_buf());
-    let rules = IgnoreRules::load(&fs).with_context(|| {
-        format!(
-            "failed to load ignore rules from `{}`",
-            root.root().display()
-        )
-    })?;
-    let scanner = Scanner::new(root.root().to_path_buf(), rules);
-
-    let mut out = Vec::new();
-    for entry in scanner {
-        let entry = entry.context("scan walk failed")?;
-        if !matches!(entry.kind, EntryKind::File) {
-            continue;
-        }
-        if !paths.is_empty() && !entry_matches_filter(&entry, paths, root.root()) {
-            continue;
-        }
-        out.push(entry);
-    }
-    Ok(out)
-}
-
-fn entry_matches_filter(entry: &ScanEntry, paths: &[PathBuf], root: &Path) -> bool {
-    paths.iter().any(|p| {
-        let abs = if p.is_absolute() {
-            p.clone()
-        } else {
-            root.join(p)
-        };
-        let Ok(rel) = abs.strip_prefix(root) else {
-            return false;
-        };
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        entry.path.as_str().starts_with(rel_str.as_str())
-    })
 }
 
 // --- Emit ------------------------------------------------------------------

@@ -22,6 +22,7 @@ mod commands;
 mod context;
 mod output;
 mod prompter;
+mod walk;
 
 /// Naming-rule-first file management for creative projects.
 #[derive(Debug, Parser)]
