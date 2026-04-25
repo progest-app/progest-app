@@ -34,11 +34,18 @@ pub struct Migration {
 }
 
 /// All migrations known to this build, in ascending version order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: include_str!("migrations/0001_initial.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: include_str!("migrations/0001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "search",
+        sql: include_str!("migrations/0002_search.sql"),
+    },
+];
 
 /// Errors surfaced by [`apply`].
 #[derive(Debug, Error)]
@@ -165,13 +172,21 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         apply(&mut conn).unwrap();
 
-        for table in ["files", "tags", "schema_version"] {
+        for table in [
+            "files",
+            "tags",
+            "schema_version",
+            "custom_fields",
+            "violations",
+            "files_fts",
+        ] {
             assert!(table_exists(&conn, table), "missing table {table}");
         }
         for index in ["idx_files_path", "idx_files_fingerprint", "idx_tags_tag"] {
             assert!(index_exists(&conn, index), "missing index {index}");
         }
-        assert_eq!(current_version(&conn).unwrap(), 1);
+        let expected_version = u32::try_from(MIGRATIONS.len()).unwrap();
+        assert_eq!(current_version(&conn).unwrap(), expected_version);
     }
 
     #[test]

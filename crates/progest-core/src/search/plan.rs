@@ -5,17 +5,22 @@
 //! string. The planner does NOT execute the query — that's the
 //! `executor` module (next PR, after FTS5 schema migration).
 //!
-//! Output target schema (created by `core::index` migration in M3
-//! #4):
+//! Output target schema (created by `core::index` migration 0002):
 //!
 //! ```sql
-//! files(file_id PK, path, name, ext, kind, notes, created_at,
-//!       updated_at, has_naming_violation, has_placement_violation,
-//!       has_sequence_violation, has_orphan, has_duplicate)
-//! tags(file_id, name)
+//! files(file_id PK, path, fingerprint, source_file_id, kind,
+//!       status, size, mtime, created_at, last_seen_at,
+//!       name, ext, notes, updated_at, is_orphan)
+//! tags(file_id, tag)
 //! custom_fields(file_id, key, value_text, value_int)
-//! files_fts(file_id UNINDEXED, name, notes, tokenize='trigram')
+//! violations(file_id, category, severity, rule_id, message)
+//! files_fts(name, notes, file_id UNINDEXED, tokenize='trigram')
 //! ```
+//!
+//! `is:violation` / `is:misplaced` predicate over `violations`,
+//! `is:duplicate` over a fingerprint self-join, `is:orphan` over the
+//! `is_orphan` flag column. Reconcile and lint will populate these
+//! in subsequent PRs (M3 #5 wires the writers).
 
 use serde::{Deserialize, Serialize};
 
@@ -99,7 +104,7 @@ impl SqlBuilder {
         match c {
             ReservedClause::Tag(name) => {
                 self.push_text(name);
-                "EXISTS (SELECT 1 FROM tags t WHERE t.file_id = f.file_id AND t.name = ?)".into()
+                "EXISTS (SELECT 1 FROM tags t WHERE t.file_id = f.file_id AND t.tag = ?)".into()
             }
             ReservedClause::Type(ext) => {
                 self.push_text(ext);
@@ -182,8 +187,10 @@ impl SqlBuilder {
             FreeTextTerm::Phrase(s) => fts_escape_phrase(s),
         };
         self.push_text(q);
-        "EXISTS (SELECT 1 FROM files_fts fts WHERE fts.file_id = f.file_id \
-         AND fts MATCH ?)"
+        // FTS5's `MATCH` operator must reference the virtual table
+        // by its declared name (not an alias) on the right-hand side.
+        "EXISTS (SELECT 1 FROM files_fts WHERE files_fts.file_id = f.file_id \
+         AND files_fts MATCH ?)"
             .into()
     }
 }
@@ -199,12 +206,18 @@ fn kind_str(k: KindValue) -> &'static str {
 fn is_predicate(v: IsValue) -> &'static str {
     match v {
         IsValue::Violation => {
-            "(f.has_naming_violation = 1 OR f.has_placement_violation = 1 \
-             OR f.has_sequence_violation = 1)"
+            "EXISTS (SELECT 1 FROM violations v WHERE v.file_id = f.file_id \
+             AND v.severity IN ('strict','warn'))"
         }
-        IsValue::Orphan => "f.has_orphan = 1",
-        IsValue::Duplicate => "f.has_duplicate = 1",
-        IsValue::Misplaced => "f.has_placement_violation = 1",
+        IsValue::Misplaced => {
+            "EXISTS (SELECT 1 FROM violations v WHERE v.file_id = f.file_id \
+             AND v.category = 'placement')"
+        }
+        IsValue::Orphan => "f.is_orphan = 1",
+        IsValue::Duplicate => {
+            "EXISTS (SELECT 1 FROM files dup WHERE dup.fingerprint = f.fingerprint \
+             AND dup.file_id != f.file_id)"
+        }
     }
 }
 
@@ -347,13 +360,31 @@ mod tests {
     #[test]
     fn is_violation() {
         let p = planned("is:violation");
-        assert!(p.sql.contains("has_naming_violation"), "{}", p.sql);
+        assert!(p.sql.contains("FROM violations"), "{}", p.sql);
+        assert!(p.sql.contains("v.severity IN"), "{}", p.sql);
     }
 
     #[test]
     fn is_misplaced() {
         let p = planned("is:misplaced");
-        assert!(p.sql.contains("has_placement_violation"));
+        assert!(p.sql.contains("FROM violations"), "{}", p.sql);
+        assert!(p.sql.contains("v.category = 'placement'"), "{}", p.sql);
+    }
+
+    #[test]
+    fn is_duplicate_uses_fingerprint_join() {
+        let p = planned("is:duplicate");
+        assert!(
+            p.sql.contains("dup.fingerprint = f.fingerprint"),
+            "{}",
+            p.sql
+        );
+    }
+
+    #[test]
+    fn is_orphan_uses_flag() {
+        let p = planned("is:orphan");
+        assert!(p.sql.contains("f.is_orphan = 1"), "{}", p.sql);
     }
 
     #[test]

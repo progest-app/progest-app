@@ -6,8 +6,8 @@ sql_contains = [
   " OR ",
   " AND ",
   "NOT ",
-  "has_naming_violation",
-  "has_placement_violation",
+  "FROM violations",
+  "v.severity IN",
 ]
 text_params = ["wip", "review"]
 warning_count = 0

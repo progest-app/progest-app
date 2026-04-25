@@ -8,12 +8,14 @@
 //! Reference: `docs/SEARCH_DSL.md` (canonical spec).
 
 pub mod ast;
+pub mod execute;
 pub mod lex;
 pub mod parse;
 pub mod plan;
 pub mod validate;
 
 pub use ast::{Atom, Clause, Expr, Query, Value};
+pub use execute::{ExecuteError, SearchHit, execute};
 pub use lex::{LexError, Spanned, Token, tokenize};
 pub use parse::{ParseError, parse};
 pub use plan::{BindValue, PlannedQuery, plan};
