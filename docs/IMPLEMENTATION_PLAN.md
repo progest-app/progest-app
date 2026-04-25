@@ -10,15 +10,15 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-25
+最終更新: 2026-04-25（M3 スコープ整合: §0/§5/M2_HANDOFF が「M3 = import」と「M3 = 検索とビュー」で乖離していたのを、§5 を正として揃え直した）
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
-- **Post-M2 リファクタ**（refactor/post-m2-cleanup、PR 未提出）— M3 着手前の整理:
+- **Post-M2 リファクタ**（refactor/post-m2-cleanup、PR #26 landed）— 次マイルストーン着手前の整理:
   - [x] CLI 共通化: `crate::output::OutputFormat` / `crate::context::{discover_root, load_*, open_*}` / `crate::walk::collect_entries` で lint / clean / rename / undo / redo / scan の重複 (3〜5 重) を集約
   - [x] テストハーネス: `progest-cli/tests/support/mod.rs`（binary_path / init_project / touch / write_file / run）、`progest-core/tests/support/mod.rs`（p / sample_fingerprint / sample_doc）
-  - [x] `core::rename` Warning 統合: `IndexWarning` + `HistoryWarning` → `ApplyWarning` enum (`IndexUpdate` / `HistoryAppend` variants)、`ApplyOutcome.warnings: Vec<ApplyWarning>` + iterator filter helpers。M3 `ImportWarning` を 3 つ目の variant としてはめる前提
-  - [ ] Conflict ↔ Warning 語彙整理 (2-4) は M3 import の payload 設計と合流させる（refactor 対象から外し）
+  - [x] `core::rename` Warning 統合: `IndexWarning` + `HistoryWarning` → `ApplyWarning` enum (`IndexUpdate` / `HistoryAppend` variants)、`ApplyOutcome.warnings: Vec<ApplyWarning>` + iterator filter helpers。M4 `ImportWarning` を 3 つ目の variant としてはめる前提
+  - [ ] Conflict ↔ Warning 語彙整理 (2-4) は M4 import の payload 設計と合流させる（refactor 対象から外し）
 - **M2 Naming rules engine + accepts**: 完了
   - [x] `core::meta` 残タスク（pending queue / `.dirmeta.toml` loader）
   - [x] DSL 仕様書 `docs/NAMING_RULES_DSL.md`
@@ -36,10 +36,11 @@
   - [x] `progest clean` sequence-aware preview — `detect_sequences` を walker 結果に走らせ、各 member に `seq-{uuid}` 割当、JSON `sequence_group` / text `[seq-...]` / apply 時は `RenameRequest.group_id` に流して history batch 共有、2 新規 smoke test（feat/m2-cli-lint-undo-redo）
   - [x] CLI `progest undo` / `progest redo` — default で head (undo) / next-consumed (redo) の同 group contiguous entry を driver で replay、`--entry` で 1 件のみ。`Rename::new_without_history` 新設で FS+index だけ replay（history は `Store::undo/redo` で consumed flip）、tag/meta_edit/import は `not yet wired` エラーで明示停止、5 smoke test（feat/m2-cli-lint-undo-redo）
   - [ ] `core::rules` follow-up（suggested_names / §6 `{seq}` 採番 / trace の `NotApplicable` 拡張 / `match_basename` の Regex::new キャッシュ化 / §4.3 `{{`・§4.4 mixed spec 等の golden 追加）— 別 issue で管理
-  - [ ] `core::accepts` follow-up（import ランキング API / `suggested_destinations` 充填 / `[extension_compounds]` loader）— 別 issue で管理、M3 `core::import` 着手時に合流
+  - [ ] `core::accepts` follow-up（import ランキング API / `suggested_destinations` 充填 / `[extension_compounds]` loader）— 別 issue で管理、M4 `core::import` 着手時に合流
   - [ ] `core::rename` follow-up（`progest doctor` で `.progest/local/staging/` の orphan 掃除 / 連番の renumber 操作 / `--from-stdin` でのバルク dry-run）— 別 issue で管理
-  - [ ] `progest undo` / `redo` の tag_add / tag_remove / meta_edit / import 対応 — 各 op 発行側（M3 import 等）着手時に合流
-- **M3 以降**: 次着手。`core::import` + thumbnail + search + template + AI。M3 kickoff 向け sequence 統合設計メモは [`docs/M2_HANDOFF.md §5`](./M2_HANDOFF.md)
+  - [ ] `progest undo` / `redo` の tag_add / tag_remove / meta_edit / import 対応 — 各 op 発行側（M4 import 等）着手時に合流
+- **M3 検索とビュー**: 次着手。`core::search` + FTS5 + コマンドパレット UI + tree/flat view + ディレクトリインスペクター + `is:misplaced` + views.toml + CLI `search`/`tag`。詳細は §5 M3。
+- **M4 サムネ + 外部連携 + AI + テンプレート**: M3 後着手。`core::import`（accepts ランキング + rename preview の一体適用、history `Operation::Import`）/ `core::thumbnail` / `core::template` / `core::ai`。M4 import kickoff 向け sequence 統合設計メモは [`docs/M2_HANDOFF.md §5`](./M2_HANDOFF.md)
 
 後続 PR に切り出した既完了モジュールの残タスク:
 - `core::index`: FTS5 virtual table（M3 search）/ `custom_fields` テーブル（M2 rules と同時可）
@@ -297,7 +298,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 - [x] mise タスク（check/test/build/fmt/dev/tauri-dev/tauri-build/cli）
 - [x] lefthook による pre-commit/commit-msg/pre-push hook
 - [x] CLI サブコマンド骨格（`init`/`scan`/`doctor`/`lint`/`search` を todo!() で定義）
-- [ ] shadcn/ui 初期化 → **M3 で導入**（UI 実装が始まるタイミング）
+- [ ] shadcn/ui 初期化 → **M3 で導入**（UI 実装が始まるタイミング）。コマンドは `pnpm dlx shadcn@latest init --preset b1D0dy4m --template vite --pointer` を使う
 - [ ] アイコン差し替え → **M5**（現在は placeholder）
 - [ ] macOS DMG / notarization → **M5**
 
