@@ -298,7 +298,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 - [x] mise タスク（check/test/build/fmt/dev/tauri-dev/tauri-build/cli）
 - [x] lefthook による pre-commit/commit-msg/pre-push hook
 - [x] CLI サブコマンド骨格（`init`/`scan`/`doctor`/`lint`/`search` を todo!() で定義）
-- [ ] shadcn/ui 初期化 → **M3 で導入**（UI 実装が始まるタイミング）
+- [ ] shadcn/ui 初期化 → **M3 で導入**（UI 実装が始まるタイミング）。コマンドは `pnpm dlx shadcn@latest init --preset b1D0dy4m --template vite --pointer` を使う
 - [ ] アイコン差し替え → **M5**（現在は placeholder）
 - [ ] macOS DMG / notarization → **M5**
 
