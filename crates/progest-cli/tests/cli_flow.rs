@@ -6,24 +6,13 @@
 //! keeps the dependency footprint small; richer ergonomics (snapshot
 //! assertions, etc.) can arrive with `assert_cmd` later if needed.
 
-use std::path::Path;
-use std::process::{Command, Output};
+mod support;
+
+use std::process::Output;
 
 use tempfile::TempDir;
 
-fn binary_path() -> &'static Path {
-    // `env!("CARGO_BIN_EXE_<name>")` is provided by Cargo for integration
-    // tests of binary crates — it points at the freshly-compiled binary.
-    Path::new(env!("CARGO_BIN_EXE_progest"))
-}
-
-fn run(cwd: &Path, args: &[&str]) -> Output {
-    Command::new(binary_path())
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .expect("failed to invoke progest binary")
-}
+use support::run;
 
 fn stdout_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()

@@ -9,17 +9,10 @@
 //! Tests inject `StdinHolePrompter::with_io` so they can drive both
 //! sides without touching real stdin/stderr.
 
-// `from_stdio` / `with_io` constructors are referenced by the
-// `progest rename` subcommand landing in the next commit on this
-// branch. Keep the prompter compilable on its own without
-// triggering dead-code warnings.
-#![allow(dead_code)]
-
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::Mutex;
 
-use progest_core::naming::types::Hole;
-use progest_core::naming::{HolePrompter, PromptError};
+use progest_core::naming::{Hole, HolePrompter, PromptError};
 
 /// Reads substitutes from `stdin`, writes prompts to `stderr`.
 ///
@@ -102,7 +95,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use progest_core::naming::types::HoleKind;
+    use progest_core::naming::HoleKind;
 
     fn hole(origin: &str) -> Hole {
         Hole {

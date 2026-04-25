@@ -16,8 +16,7 @@ pub mod preview;
 pub mod sequence;
 
 pub use apply::{
-    AppliedOp, ApplyError, ApplyOutcome, HistoryWarning, IndexWarning, Rename, STAGING_PREFIX,
-    StageStep,
+    AppliedOp, ApplyError, ApplyOutcome, ApplyWarning, Rename, STAGING_PREFIX, StageStep,
 };
 pub use ops::{Conflict, ConflictKind, RenameOp};
 pub use preview::{

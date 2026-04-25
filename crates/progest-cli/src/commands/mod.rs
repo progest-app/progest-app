@@ -1,10 +1,14 @@
 //! Implementation of each `progest` subcommand.
 //!
-//! Each submodule exposes a single `run` function that the top-level CLI
-//! dispatches to. Handlers own I/O concerns (printing summaries, picking
-//! the working directory) but defer all non-trivial logic to
-//! `progest-core`, keeping them interchangeable with the future GUI / IPC
-//! layer.
+//! Each submodule owns the I/O concerns (argument parsing, printing
+//! summaries, exit codes) for one or more related subcommands and
+//! defers all non-trivial logic to `progest-core` so the CLI stays
+//! interchangeable with the future GUI / IPC layer. Most modules
+//! expose a single `run` entry point; [`undo`] handles both
+//! `progest undo` and `progest redo` through a shared driver, and
+//! [`clean`] re-exports a few flag enums (`CaseFlag`, `FillFlag`)
+//! that [`rename`] also uses since the two subcommands share their
+//! cleanup pipeline knobs.
 
 pub mod clean;
 pub mod doctor;

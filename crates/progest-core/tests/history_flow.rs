@@ -12,15 +12,14 @@
 //! - `group_id` lets callers find every row belonging to a bulk
 //!   operation with a single SQL pass.
 
-use progest_core::fs::ProjectPath;
+mod support;
+
 use progest_core::history::{AppendRequest, Operation, SqliteStore, Store};
 use progest_core::identity::{FileId, Fingerprint};
 use progest_core::meta::MetaDocument;
 use tempfile::TempDir;
 
-fn p(s: &str) -> ProjectPath {
-    ProjectPath::new(s).unwrap()
-}
+use support::p;
 
 fn rename(from: &str, to: &str) -> AppendRequest {
     AppendRequest::new(Operation::Rename {

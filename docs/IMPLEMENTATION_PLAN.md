@@ -10,10 +10,15 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-24
+最終更新: 2026-04-25
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
+- **Post-M2 リファクタ**（refactor/post-m2-cleanup、PR 未提出）— M3 着手前の整理:
+  - [x] CLI 共通化: `crate::output::OutputFormat` / `crate::context::{discover_root, load_*, open_*}` / `crate::walk::collect_entries` で lint / clean / rename / undo / redo / scan の重複 (3〜5 重) を集約
+  - [x] テストハーネス: `progest-cli/tests/support/mod.rs`（binary_path / init_project / touch / write_file / run）、`progest-core/tests/support/mod.rs`（p / sample_fingerprint / sample_doc）
+  - [x] `core::rename` Warning 統合: `IndexWarning` + `HistoryWarning` → `ApplyWarning` enum (`IndexUpdate` / `HistoryAppend` variants)、`ApplyOutcome.warnings: Vec<ApplyWarning>` + iterator filter helpers。M3 `ImportWarning` を 3 つ目の variant としてはめる前提
+  - [ ] Conflict ↔ Warning 語彙整理 (2-4) は M3 import の payload 設計と合流させる（refactor 対象から外し）
 - **M2 Naming rules engine + accepts**: 完了
   - [x] `core::meta` 残タスク（pending queue / `.dirmeta.toml` loader）
   - [x] DSL 仕様書 `docs/NAMING_RULES_DSL.md`

@@ -11,33 +11,19 @@
 //!   reverses every member of the shared sequence group in one hop
 //! - `--entry` limits the action to the head entry only
 
-use std::path::{Path, PathBuf};
+mod support;
+
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::Result;
 use serde_json::Value;
 use tempfile::TempDir;
 
-fn binary_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_progest"))
-}
+use support::{binary_path, init_project as init_named, touch};
 
 fn init_project(cwd: &Path) -> Result<()> {
-    let status = Command::new(binary_path())
-        .current_dir(cwd)
-        .args(["init", "--name", "undo-smoke"])
-        .status()?;
-    assert!(status.success());
-    Ok(())
-}
-
-fn touch(cwd: &Path, rel: &str) -> Result<()> {
-    let path = cwd.join(rel);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, b"")?;
-    Ok(())
+    init_named(cwd, "undo-smoke")
 }
 
 fn run_undo(cwd: &Path, extra: &[&str]) -> (Value, i32) {

@@ -6,42 +6,19 @@
 //! alongside the respective `core::` modules; this file is just the
 //! integration layer.
 
-use std::path::{Path, PathBuf};
+mod support;
+
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::Result;
 use serde_json::Value;
 use tempfile::TempDir;
 
-fn binary_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_progest"))
-}
+use support::{binary_path, init_project as init_named, touch, write_file};
 
 fn init_project(cwd: &Path) -> Result<()> {
-    let status = Command::new(binary_path())
-        .current_dir(cwd)
-        .args(["init", "--name", "lint-smoke"])
-        .status()?;
-    assert!(status.success(), "progest init failed");
-    Ok(())
-}
-
-fn touch(cwd: &Path, rel: &str) -> Result<()> {
-    let path = cwd.join(rel);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, b"")?;
-    Ok(())
-}
-
-fn write_file(cwd: &Path, rel: &str, body: &str) -> Result<()> {
-    let path = cwd.join(rel);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, body)?;
-    Ok(())
+    init_named(cwd, "lint-smoke")
 }
 
 fn run_lint_json(cwd: &Path) -> (Value, i32) {

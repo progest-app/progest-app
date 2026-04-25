@@ -28,17 +28,14 @@
 //!   or the apply itself errored.
 
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
-use progest_core::fs::{EntryKind, IgnoreRules, ProjectPath, ScanEntry, Scanner, StdFileSystem};
-use progest_core::history::SqliteStore as HistoryStore;
-use progest_core::index::SqliteIndex;
-use progest_core::naming::{
-    CaseStyle, CleanupConfig, FillMode, NameCandidate, clean_basename, extract_cleanup_config,
-};
-use progest_core::project::{ProjectDocument, ProjectRoot};
+use progest_core::fs::{ProjectPath, StdFileSystem};
+use progest_core::naming::{CleanupConfig, FillMode, NameCandidate, clean_basename};
+use progest_core::project::ProjectRoot;
 use progest_core::rename::{
     ApplyOutcome, Rename, RenameOp, RenamePreview, RenameRequest, build_preview,
     build_preview_with_prompter, requests_from_sequence,
@@ -47,13 +44,18 @@ use progest_core::rules::BUILTIN_COMPOUND_EXTS;
 use progest_core::sequence::detect_sequences;
 use serde::Serialize;
 
-use crate::commands::clean::{CaseFlag, FillFlag, FormatFlag};
+use crate::commands::clean::{CaseFlag, FillFlag};
+use crate::context::{
+    CleanupOverrides, discover_root, load_cleanup_config, open_history, open_index,
+};
+use crate::output::{OutputFormat, emit_json};
 use crate::prompter::StdinHolePrompter;
+use crate::walk::collect_entries;
 
 /// CLI arguments accepted by `progest rename`.
 pub struct RenameArgs {
     pub paths: Vec<PathBuf>,
-    pub format: FormatFlag,
+    pub format: OutputFormat,
     pub mode: RenameMode,
     pub from_stdin: bool,
     pub case: Option<CaseFlag>,
@@ -77,12 +79,7 @@ pub enum RenameMode {
 }
 
 pub fn run(cwd: &Path, args: &RenameArgs) -> Result<i32> {
-    let root = ProjectRoot::discover(cwd).with_context(|| {
-        format!(
-            "could not find a Progest project at or above `{}`",
-            cwd.display()
-        )
-    })?;
+    let root = discover_root(cwd)?;
 
     let preview = if args.from_stdin {
         if !args.paths.is_empty() {
@@ -110,7 +107,7 @@ pub fn run(cwd: &Path, args: &RenameArgs) -> Result<i32> {
 // --- Path mode -------------------------------------------------------------
 
 fn build_preview_from_paths(root: &ProjectRoot, args: &RenameArgs) -> Result<RenamePreview> {
-    let cfg = load_cleanup_config(root, args)?;
+    let cfg = load_cleanup_for_args(root, args)?;
     let entries = collect_entries(root, &args.paths)?;
 
     let requests: Vec<RenameRequest> = entries
@@ -138,80 +135,13 @@ fn build_preview_from_paths(root: &ProjectRoot, args: &RenameArgs) -> Result<Ren
     Ok(preview)
 }
 
-fn load_cleanup_config(root: &ProjectRoot, args: &RenameArgs) -> Result<CleanupConfig> {
-    let raw = std::fs::read_to_string(root.project_toml())
-        .with_context(|| format!("failed to read `{}`", root.project_toml().display()))?;
-    let doc = ProjectDocument::from_toml_str(&raw)
-        .with_context(|| format!("failed to parse `{}`", root.project_toml().display()))?;
-    let (mut cfg, warns) = extract_cleanup_config(&doc.extra).with_context(|| {
-        format!(
-            "failed to read [cleanup] from `{}`",
-            root.project_toml().display()
-        )
-    })?;
-    for w in warns {
-        eprintln!("warning: {w:?}");
-    }
-    if let Some(case) = &args.case {
-        cfg.convert_case = case_flag_to_style(case);
-    }
-    if args.strip_cjk {
-        cfg.remove_cjk = true;
-    }
-    if args.strip_suffix {
-        cfg.remove_copy_suffix = true;
-    }
-    Ok(cfg)
-}
-
-fn case_flag_to_style(flag: &CaseFlag) -> CaseStyle {
-    match flag {
-        CaseFlag::Off => CaseStyle::Off,
-        CaseFlag::Snake => CaseStyle::Snake,
-        CaseFlag::Kebab => CaseStyle::Kebab,
-        CaseFlag::Camel => CaseStyle::Camel,
-        CaseFlag::Pascal => CaseStyle::Pascal,
-        CaseFlag::Lower => CaseStyle::Lower,
-        CaseFlag::Upper => CaseStyle::Upper,
-    }
-}
-
-fn collect_entries(root: &ProjectRoot, paths: &[PathBuf]) -> Result<Vec<ScanEntry>> {
-    let fs = StdFileSystem::new(root.root().to_path_buf());
-    let rules = IgnoreRules::load(&fs).with_context(|| {
-        format!(
-            "failed to load ignore rules from `{}`",
-            root.root().display()
-        )
-    })?;
-    let scanner = Scanner::new(root.root().to_path_buf(), rules);
-    let mut out = Vec::new();
-    for entry in scanner {
-        let entry = entry.context("scan walk failed")?;
-        if !matches!(entry.kind, EntryKind::File) {
-            continue;
-        }
-        if !paths.is_empty() && !entry_matches_filter(&entry, paths, root.root()) {
-            continue;
-        }
-        out.push(entry);
-    }
-    Ok(out)
-}
-
-fn entry_matches_filter(entry: &ScanEntry, paths: &[PathBuf], root: &Path) -> bool {
-    paths.iter().any(|p| {
-        let abs = if p.is_absolute() {
-            p.clone()
-        } else {
-            root.join(p)
-        };
-        let Ok(rel) = abs.strip_prefix(root) else {
-            return false;
-        };
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        entry.path.as_str().starts_with(rel_str.as_str())
-    })
+fn load_cleanup_for_args(root: &ProjectRoot, args: &RenameArgs) -> Result<CleanupConfig> {
+    let overrides = CleanupOverrides {
+        case: args.case.as_ref().map(CaseFlag::to_style),
+        force_remove_cjk: args.strip_cjk,
+        force_remove_copy_suffix: args.strip_suffix,
+    };
+    load_cleanup_config(root, &overrides)
 }
 
 // --- Sequence mode ---------------------------------------------------------
@@ -286,15 +216,15 @@ struct PreviewSummary {
     conflicting: usize,
 }
 
-fn emit_preview(preview: &RenamePreview, format: &FormatFlag) -> Result<()> {
+fn emit_preview(preview: &RenamePreview, format: &OutputFormat) -> Result<()> {
     let summary = PreviewSummary {
         total: preview.ops.len(),
         clean: preview.clean_ops().count(),
         conflicting: preview.conflicting_ops().count(),
     };
     match format {
-        FormatFlag::Text => emit_preview_text(preview, &summary),
-        FormatFlag::Json => emit_preview_json(preview, &summary)?,
+        OutputFormat::Text => emit_preview_text(preview, &summary),
+        OutputFormat::Json => emit_preview_json(preview, &summary)?,
     }
     Ok(())
 }
@@ -325,9 +255,7 @@ fn emit_preview_json(preview: &RenamePreview, summary: &PreviewSummary) -> Resul
             conflicting: summary.conflicting,
         },
     };
-    let s = serde_json::to_string_pretty(&report).context("serializing preview report")?;
-    println!("{s}");
-    Ok(())
+    emit_json(&report, "rename preview")
 }
 
 // --- Apply ------------------------------------------------------------------
@@ -348,7 +276,11 @@ struct AppliedPath<'a> {
     to: &'a ProjectPath,
 }
 
-fn apply_preview(root: &ProjectRoot, preview: &RenamePreview, format: &FormatFlag) -> Result<i32> {
+fn apply_preview(
+    root: &ProjectRoot,
+    preview: &RenamePreview,
+    format: &OutputFormat,
+) -> Result<i32> {
     if !preview.is_clean() {
         emit_preview(preview, format)?;
         eprintln!(
@@ -359,10 +291,8 @@ fn apply_preview(root: &ProjectRoot, preview: &RenamePreview, format: &FormatFla
     }
 
     let fs = StdFileSystem::new(root.root().to_path_buf());
-    let index = SqliteIndex::open(&root.index_db())
-        .with_context(|| format!("opening index `{}`", root.index_db().display()))?;
-    let history = HistoryStore::open(&root.history_db())
-        .with_context(|| format!("opening history `{}`", root.history_db().display()))?;
+    let index = open_index(root)?;
+    let history = open_history(root)?;
     let driver = Rename::new(&fs, &index, &history);
     let outcome = driver.apply(preview).context("applying rename batch")?;
 
@@ -370,10 +300,10 @@ fn apply_preview(root: &ProjectRoot, preview: &RenamePreview, format: &FormatFla
     Ok(0)
 }
 
-fn emit_apply(outcome: &ApplyOutcome, format: &FormatFlag) -> Result<()> {
+fn emit_apply(outcome: &ApplyOutcome, format: &OutputFormat) -> Result<()> {
     match format {
-        FormatFlag::Text => emit_apply_text(outcome),
-        FormatFlag::Json => emit_apply_json(outcome)?,
+        OutputFormat::Text => emit_apply_text(outcome),
+        OutputFormat::Json => emit_apply_json(outcome)?,
     }
     Ok(())
 }
@@ -389,20 +319,18 @@ fn emit_apply_text(outcome: &ApplyOutcome) {
     for op in &outcome.applied {
         let _ = writeln!(out, "  {} → {}", op.from, op.to);
     }
-    if !outcome.index_warnings.is_empty() {
-        let _ = writeln!(out, "\nindex warnings ({}):", outcome.index_warnings.len());
-        for w in &outcome.index_warnings {
-            let _ = writeln!(out, "  {} → {}: {}", w.from, w.to, w.message);
+    let index_warnings: Vec<_> = outcome.index_warnings().collect();
+    if !index_warnings.is_empty() {
+        let _ = writeln!(out, "\nindex warnings ({}):", index_warnings.len());
+        for w in &index_warnings {
+            let _ = writeln!(out, "  {} → {}: {}", w.from(), w.to(), w.message());
         }
     }
-    if !outcome.history_warnings.is_empty() {
-        let _ = writeln!(
-            out,
-            "\nhistory warnings ({}):",
-            outcome.history_warnings.len()
-        );
-        for w in &outcome.history_warnings {
-            let _ = writeln!(out, "  {} → {}: {}", w.from, w.to, w.message);
+    let history_warnings: Vec<_> = outcome.history_warnings().collect();
+    if !history_warnings.is_empty() {
+        let _ = writeln!(out, "\nhistory warnings ({}):", history_warnings.len());
+        for w in &history_warnings {
+            let _ = writeln!(out, "  {} → {}: {}", w.from(), w.to(), w.message());
         }
     }
 }
@@ -412,8 +340,8 @@ fn emit_apply_json(outcome: &ApplyOutcome) -> Result<()> {
         batch_id: &outcome.batch_id,
         group_id: outcome.group_id.as_deref(),
         applied: outcome.applied.len(),
-        index_warnings: outcome.index_warnings.len(),
-        history_warnings: outcome.history_warnings.len(),
+        index_warnings: outcome.index_warnings().count(),
+        history_warnings: outcome.history_warnings().count(),
         paths: outcome
             .applied
             .iter()
@@ -423,7 +351,5 @@ fn emit_apply_json(outcome: &ApplyOutcome) -> Result<()> {
             })
             .collect(),
     };
-    let s = serde_json::to_string_pretty(&report).context("serializing apply report")?;
-    println!("{s}");
-    Ok(())
+    emit_json(&report, "rename apply")
 }

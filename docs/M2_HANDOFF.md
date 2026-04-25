@@ -3,7 +3,7 @@
 M1 完了後に M2 を進めるための、次セッション向けハンドオフ。
 **M2 に関わる実装に入る前に必ず目を通す。** 進捗に合わせて更新していく。
 
-最終更新: 2026-04-24（M2 完了: CLI `lint` / `undo` / `redo` landed + `core::sequence::drift` / sequence-aware `clean` 横展開 landed）
+最終更新: 2026-04-25（post-M2 リファクタ landed: CLI 共通化 / テストハーネス / `ApplyWarning` enum 統合）
 
 ---
 
@@ -135,6 +135,18 @@ M2 で `core::sequence` + `core::sequence::drift` が landed し、`progest clea
 
 `Operation::Import` は既に `core::history::types` に予約されているが、現行 CLI では未発行。M3 で発行側を実装する。inverse は `is_inverse = true` の Import（= 削除）で定義済。
 
+### 5.5.5 ApplyWarning に ImportWarning variant を追加
+
+post-M2 リファクタで `IndexWarning` + `HistoryWarning` を `ApplyWarning enum { IndexUpdate, HistoryAppend }` に統合済 (`crates/progest-core/src/rename/apply.rs`)。`core::import` 着手時に 3 つ目の variant `ImportWarning::ImportFailed { src, dest, message }` を足す方針（rename と同じ Vec に乗せるか別 ApplyOutcome を使うかは設計時に再検討）。
+
+### 5.5.7 Conflict ↔ Warning の語彙整理 (post-M2 refactor 2-4)
+
+post-M2 audit で挙がった候補 2-4（ApplyOutcome の `{ conflicts, warnings }` 構造化 / `Conflict` ↔ `Warning` の体系再検討）は import の payload 設計と合流させるため M3 kickoff に持ち越し。論点:
+
+- `Conflict` は preview phase（apply をブロックする条件）、`Warning` は apply post-commit（FS 完了済みで repair 可能）の意味的差があり、安易に `Issue` enum へ統合するのは情報を捨てる
+- import が新規 conflict 種を追加するか（例: dest already exists、source missing）で語彙が変わる
+- M3 で import の Conflict variants を確定させてから一気に整理
+
 ### 5.6 doctor staging cleanup（M2 から follow-up）
 
 rename / import 共通の `.progest/local/staging/<uuid>/` に残骸が残り得る（rollback 失敗時）。`progest doctor --clean-staging` (age > 1 日の uuid dir を GC) を M3 着手時に同時実装するのが望ましい。IMPLEMENTATION_PLAN §0 の rename follow-up 項目に既記載。
@@ -155,3 +167,4 @@ rename / import 共通の `.progest/local/staging/<uuid>/` に残骸が残り得
 - 2026-04-24: `core::history` 本体 landed（feat/m2-core-history）。SQLite 単一テーブル `entries` + `meta(pointer)` 構成で `.progest/local/history.db`、5 op kind（`rename`/`tag_add`/`tag_remove`/`meta_edit`/`import`）、`invert()` は純粋関数で double-inverse 恒等、`append` が redo branch を自動 erase、retention 50 で tail 削除 + pointer stale は最新 non-consumed に reconciliation、undo/redo は `consumed` フラグの反転 + pointer 遷移。history は「記録だけ」で FS/meta/index 原子性は呼び出し側の責務とする契約（REQUIREMENTS §3.4 準拠）。 `ProjectRoot::history_db()` accessor と `HISTORY_DB_FILENAME` constant を追加、`.progest/local/` は既に gitignore 対象。M2_HANDOFF §1 / §2 / §5 を `core::rename` 着手向けに更新
 - 2026-04-24: **M2 完了**。CLI `lint` / `undo` / `redo` + sequence 横展開を `feat/m2-cli-lint-undo-redo` ブランチで一括 landed。`core::sequence::drift`（inter-sequence 差分検出、majority canonical、`DriftViolation` + `suggested_name`）/ `core::lint` orchestrator（rules + accepts + drift 集約、dirmeta chain cache、DSL §9.3 trace trim）/ `progest lint`（grouped JSON `{naming, placement, sequence, summary}` + text + exit code DSL §8.2）/ sequence-aware `progest clean`（`sequence_group` タグ + apply 時 group_id 共有）/ `progest undo` / `progest redo`（default group 単位 / `--entry` 単発、`Rename::new_without_history` で FS+index のみ replay、history は `Store::undo/redo` で consumed flip）/ `Rename.history` を `Option` 化。core lint 4 + drift 9 + cli lint 6 + clean 2 新規 + undo/redo 5 smoke test、既存 rename/clean test 全 pass。`Category::Sequence` 追加、`ProjectRoot::{rules_toml,schema_toml}()` accessor + filename const 追加。§5 は M3 `core::import` kickoff 向けに差し替え。
 - 2026-04-24: `core::rename` + `core::sequence` + `naming::HolePrompter` + CLI `rename` / `clean --apply` 一括 landed（feat/m2-core-rename）。`fs::FaultyFileSystem` decorator + proptest を最初に入れて apply の rollback 不変条件を property test で固定（5-op × 20 fault placements）。`Rename::apply` は 2-phase staging（`.progest/local/staging/<uuid>/`）+ rollback / FS rename と `.meta` rename を一体に / index update post-commit best-effort（`IndexWarning`）/ history `Operation::Rename` append と bulk auto group_id（per-op 優先、`outcome.group_id` が caller group を round-trip）。`core::sequence` は同 parent + stem + sep + padding + ext で group・gap 許容・min 2 members、`requests_from_sequence(seq, new_stem)` で stem 置換 RenameRequest 群を生成。`StdinHolePrompter` は generic `Read + Send`/`Write + Send` で stderr→prompt / stdin→入力（JSON pipe を壊さない）。CLI は `--mode preview|apply` / `--format text|json` / `--fill-mode skip|placeholder|prompt` / `--sequence-stem STEM` / `--from-stdin`、`clean --apply` は同じ apply path。core 39 + cli 5 smoke + 6 prompter test + property test 全 green。M2_HANDOFF §1 / §2 / §5 を CLI `lint` / `undo` / `redo` 着手向けに更新
+- 2026-04-25: post-M2 リファクタ landed（refactor/post-m2-cleanup、7 commits）。M3 着手前の整理として、agent audit に基づき (1) CLI 共通化 — `crate::output::OutputFormat`（lint/clean/undo の `FormatFlag` × 3 を統合）+ `crate::context::{discover_root, load_ruleset, load_alias_catalog_from_root, load_cleanup_config, open_index, open_history}`（5 sub command の ProjectRoot 解決 + 設定ローダー + DB open boilerplate を集約、`CleanupOverrides` で flag → cfg の差し込みを 1 箇所に）+ `crate::walk::collect_entries`（lint/clean/rename の 3 重コピーを単一実装に）/ `CaseFlag::to_style` を `pub(crate)` 化して rename 側の重複削除、(2) テストハーネス — `progest-cli/tests/support/mod.rs`（binary_path / init_project / touch / write_file / run、5 smoke ファイルから抽出）+ `progest-core/tests/support/mod.rs`（p / sample_fingerprint / sample_doc）、(3) `core::rename` Warning 統合 — `IndexWarning` + `HistoryWarning` を `ApplyWarning enum { IndexUpdate, HistoryAppend }` に統合、`ApplyOutcome.warnings: Vec<ApplyWarning>` + `index_warnings()` / `history_warnings()` iterator helpers + `from()` / `to()` / `message()` accessors。JSON wire は `{"kind":"index_update", ...}` 形式に変更（smoke test は warning フィールドに assert していなかったので fixture 更新不要）。Conflict ↔ Warning の語彙整理 (audit 2-4) は M3 import の Conflict variants を確定させてから合流するため defer。reconcile_flow の `Harness` は単一消費者なのでまだ promote しない判断。

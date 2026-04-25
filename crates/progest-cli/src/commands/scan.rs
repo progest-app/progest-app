@@ -6,8 +6,9 @@ use anyhow::{Context, Result};
 use progest_core::fs::StdFileSystem;
 use progest_core::index::SqliteIndex;
 use progest_core::meta::StdMetaStore;
-use progest_core::project::ProjectRoot;
 use progest_core::reconcile::{Reconciler, ScanReport};
+
+use crate::context::discover_root;
 
 /// Run `progest scan` starting the discovery walk from `cwd`.
 pub fn run(cwd: &Path) -> Result<()> {
@@ -19,12 +20,7 @@ pub fn run(cwd: &Path) -> Result<()> {
 /// Shared scan routine used by both `scan` and `doctor` so the two never
 /// disagree about what "reconciled" means.
 pub(crate) fn scan(cwd: &Path) -> Result<ScanReport> {
-    let root = ProjectRoot::discover(cwd).with_context(|| {
-        format!(
-            "could not find a Progest project at or above `{}`",
-            cwd.display()
-        )
-    })?;
+    let root = discover_root(cwd)?;
     let fs = StdFileSystem::new(root.root().to_path_buf());
     let meta = StdMetaStore::new(fs.clone());
     let index = SqliteIndex::open(&root.index_db())

@@ -6,33 +6,19 @@
 //! detail — the JSON surface is stable enough to anchor regressions,
 //! and the text renderer is layered on top.
 
-use std::path::{Path, PathBuf};
+mod support;
+
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::Result;
 use serde_json::Value;
 use tempfile::TempDir;
 
-fn binary_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_progest"))
-}
+use support::{binary_path, init_project as init_named, touch};
 
 fn init_project(cwd: &Path) -> Result<()> {
-    let status = Command::new(binary_path())
-        .current_dir(cwd)
-        .args(["init", "--name", "clean-smoke"])
-        .status()?;
-    assert!(status.success(), "progest init failed");
-    Ok(())
-}
-
-fn touch(cwd: &Path, rel: &str) -> Result<()> {
-    let path = cwd.join(rel);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, b"")?;
-    Ok(())
+    init_named(cwd, "clean-smoke")
 }
 
 fn run_clean_json(cwd: &Path) -> Result<Value> {

@@ -27,14 +27,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
-use progest_core::fs::{EntryKind, IgnoreRules, ProjectPath, ScanEntry, Scanner, StdFileSystem};
-use progest_core::history::SqliteStore as HistoryStore;
-use progest_core::index::SqliteIndex;
+use progest_core::fs::{ProjectPath, ScanEntry, StdFileSystem};
 use progest_core::naming::{
-    CaseStyle, CleanupConfig, FillMode, Hole, NameCandidate, Segment, clean_basename,
-    extract_cleanup_config, resolve,
+    CaseStyle, CleanupConfig, FillMode, Hole, NameCandidate, Segment, clean_basename, resolve,
 };
-use progest_core::project::{ProjectDocument, ProjectRoot};
+use progest_core::project::ProjectRoot;
 use progest_core::rename::{
     ApplyOutcome, Rename, RenameRequest, build_preview, build_preview_with_prompter,
 };
@@ -43,15 +40,14 @@ use progest_core::sequence::detect_sequences;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::context::{
+    CleanupOverrides, discover_root, load_cleanup_config, open_history, open_index,
+};
+use crate::output::{OutputFormat, emit_json};
 use crate::prompter::StdinHolePrompter;
+use crate::walk::collect_entries;
 
 // --- CLI flag types --------------------------------------------------------
-
-#[derive(ValueEnum, Clone, Debug)]
-pub enum FormatFlag {
-    Text,
-    Json,
-}
 
 #[derive(ValueEnum, Clone, Debug)]
 pub enum CaseFlag {
@@ -65,7 +61,7 @@ pub enum CaseFlag {
 }
 
 impl CaseFlag {
-    fn to_style(&self) -> CaseStyle {
+    pub(crate) fn to_style(&self) -> CaseStyle {
         match self {
             Self::Off => CaseStyle::Off,
             Self::Snake => CaseStyle::Snake,
@@ -92,7 +88,7 @@ pub enum FillFlag {
 
 pub struct CleanArgs {
     pub paths: Vec<PathBuf>,
-    pub format: FormatFlag,
+    pub format: OutputFormat,
     pub case: Option<CaseFlag>,
     pub strip_cjk: bool,
     pub strip_suffix: bool,
@@ -104,12 +100,7 @@ pub struct CleanArgs {
 }
 
 pub fn run(cwd: &Path, args: &CleanArgs) -> Result<i32> {
-    let root = ProjectRoot::discover(cwd).with_context(|| {
-        format!(
-            "could not find a Progest project at or above `{}`",
-            cwd.display()
-        )
-    })?;
+    let root = discover_root(cwd)?;
 
     let cfg = load_cfg(&root, args)?;
     let fill_mode = build_fill_mode(args);
@@ -119,8 +110,8 @@ pub fn run(cwd: &Path, args: &CleanArgs) -> Result<i32> {
     let report = build_report(&root, &cfg, &fill_mode, &entries, &seq_groups);
 
     match args.format {
-        FormatFlag::Text => emit_text(&report),
-        FormatFlag::Json => emit_json(&report)?,
+        OutputFormat::Text => emit_text(&report),
+        OutputFormat::Json => emit_json(&report, "clean")?,
     }
 
     if args.apply {
@@ -150,29 +141,12 @@ fn sequence_groups(entries: &[ScanEntry]) -> HashMap<ProjectPath, String> {
 }
 
 fn load_cfg(root: &ProjectRoot, args: &CleanArgs) -> Result<CleanupConfig> {
-    let raw = std::fs::read_to_string(root.project_toml())
-        .with_context(|| format!("failed to read `{}`", root.project_toml().display()))?;
-    let doc = ProjectDocument::from_toml_str(&raw)
-        .with_context(|| format!("failed to parse `{}`", root.project_toml().display()))?;
-    let (mut cfg, warns) = extract_cleanup_config(&doc.extra).with_context(|| {
-        format!(
-            "failed to read [cleanup] from `{}`",
-            root.project_toml().display()
-        )
-    })?;
-    for w in warns {
-        eprintln!("warning: {w:?}");
-    }
-    if let Some(case) = &args.case {
-        cfg.convert_case = case.to_style();
-    }
-    if args.strip_cjk {
-        cfg.remove_cjk = true;
-    }
-    if args.strip_suffix {
-        cfg.remove_copy_suffix = true;
-    }
-    Ok(cfg)
+    let overrides = CleanupOverrides {
+        case: args.case.as_ref().map(CaseFlag::to_style),
+        force_remove_cjk: args.strip_cjk,
+        force_remove_copy_suffix: args.strip_suffix,
+    };
+    load_cleanup_config(root, &overrides)
 }
 
 fn build_fill_mode(args: &CleanArgs) -> FillMode {
@@ -186,45 +160,6 @@ fn build_fill_mode(args: &CleanArgs) -> FillMode {
         // stdin. Use `progest rename` for interactive resolution.
         FillFlag::Skip | FillFlag::Prompt => FillMode::Skip,
     }
-}
-
-fn collect_entries(root: &ProjectRoot, paths: &[PathBuf]) -> Result<Vec<ScanEntry>> {
-    let fs = StdFileSystem::new(root.root().to_path_buf());
-    let rules = IgnoreRules::load(&fs).with_context(|| {
-        format!(
-            "failed to load ignore rules from `{}`",
-            root.root().display()
-        )
-    })?;
-    let scanner = Scanner::new(root.root().to_path_buf(), rules);
-
-    let mut out = Vec::new();
-    for entry in scanner {
-        let entry = entry.context("scan walk failed")?;
-        if !matches!(entry.kind, EntryKind::File) {
-            continue;
-        }
-        if !paths.is_empty() && !entry_matches_filter(&entry, paths, root.root()) {
-            continue;
-        }
-        out.push(entry);
-    }
-    Ok(out)
-}
-
-fn entry_matches_filter(entry: &ScanEntry, paths: &[PathBuf], root: &Path) -> bool {
-    paths.iter().any(|p| {
-        let abs = if p.is_absolute() {
-            p.clone()
-        } else {
-            root.join(p)
-        };
-        let Ok(rel) = abs.strip_prefix(root) else {
-            return false;
-        };
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        entry.path.as_str().starts_with(rel_str.as_str())
-    })
 }
 
 // --- Report ----------------------------------------------------------------
@@ -409,18 +344,19 @@ fn emit_text(report: &Report<'_>) {
     );
 }
 
-fn emit_json(report: &Report<'_>) -> Result<()> {
-    let s = serde_json::to_string_pretty(report).context("serializing clean report")?;
-    println!("{s}");
-    Ok(())
-}
-
 // --- Apply -----------------------------------------------------------------
 
 /// Commit the changed-and-resolvable candidates from the report. Runs
 /// only the rename half (FS + .meta + index + history); the preview
 /// report is emitted separately above so the user can audit before
 /// re-running with `--apply`.
+///
+/// Decomposed into [`build_clean_requests`] (pure: candidate
+/// construction + sequence group tagging), [`resolve_preview`]
+/// (fill-mode dispatch over the cleanup builder), and
+/// [`drop_identity_ops`] (filter out `from == to` rows the user
+/// already saw in preview). The orchestration here just glues those
+/// together and runs the apply driver.
 fn commit(
     root: &ProjectRoot,
     cfg: &CleanupConfig,
@@ -428,53 +364,10 @@ fn commit(
     entries: &[ScanEntry],
     seq_groups: &HashMap<ProjectPath, String>,
 ) -> Result<i32> {
-    // Build one RenameRequest per scanned entry; let the preview
-    // builder handle conflict detection (Identity, TargetExists,
-    // DuplicateTarget, Unresolved). Filtering "would change" up
-    // front would short-circuit Identity detection but also miss
-    // surprising collisions, so we let the preview catch all four.
-    //
-    // Entries that share a detected sequence carry the same
-    // `group_id` so the apply path records them under one history
-    // batch — undo reverses the whole sequence in one hop.
-    let requests: Vec<RenameRequest> = entries
-        .iter()
-        .map(|e| {
-            let original = e.path.file_name().unwrap_or("");
-            let cand = clean_basename(original, cfg, BUILTIN_COMPOUND_EXTS);
-            let req = RenameRequest::new(e.path.clone(), cand);
-            match seq_groups.get(&e.path) {
-                Some(g) => req.with_group_id(g.clone()),
-                None => req,
-            }
-        })
-        .collect();
-
+    let requests = build_clean_requests(entries, cfg, seq_groups);
     let fs = StdFileSystem::new(root.root().to_path_buf());
-    let preview = match (&args.fill_mode, args.placeholder.clone()) {
-        (FillFlag::Skip, _) => build_preview(&requests, &FillMode::Skip, &fs)?,
-        (FillFlag::Placeholder, p) => build_preview(
-            &requests,
-            &FillMode::Placeholder(p.unwrap_or_else(|| "_".into())),
-            &fs,
-        )?,
-        (FillFlag::Prompt, _) => {
-            let prompter = StdinHolePrompter::from_stdio();
-            build_preview_with_prompter(&requests, &prompter, &fs)?
-        }
-    };
-
-    // Drop ops with `from == to` before checking cleanness:
-    // - Identity (no rename needed) — the dominant case
-    // - Unresolved (`to` falls back to `from`) — already surfaced in
-    //   the preview report; the user saw them and chose to apply
-    //   anyway, so skip them silently rather than blocking apply
-    let actionable: Vec<_> = preview
-        .ops
-        .into_iter()
-        .filter(|op| op.from != op.to)
-        .collect();
-    let preview = progest_core::rename::RenamePreview { ops: actionable };
+    let preview = resolve_preview(&requests, &args.fill_mode, args.placeholder.as_deref(), &fs)?;
+    let preview = drop_identity_ops(preview);
 
     if preview.ops.is_empty() {
         println!("\n(nothing to apply)");
@@ -488,15 +381,78 @@ fn commit(
         return Ok(1);
     }
 
-    let index = SqliteIndex::open(&root.index_db())
-        .with_context(|| format!("opening index `{}`", root.index_db().display()))?;
-    let history = HistoryStore::open(&root.history_db())
-        .with_context(|| format!("opening history `{}`", root.history_db().display()))?;
+    let index = open_index(root)?;
+    let history = open_history(root)?;
     let driver = Rename::new(&fs, &index, &history);
     let outcome = driver.apply(&preview).context("applying rename batch")?;
 
     emit_apply_summary(&outcome);
     Ok(0)
+}
+
+/// Build one [`RenameRequest`] per scanned entry, threading shared
+/// `seq-<uuid>` group ids through so an entire detected sequence
+/// commits under a single history batch (and reverses with one undo).
+///
+/// The cleanup pipeline runs over every entry — including unchanged
+/// ones — because letting the preview builder see them all means it
+/// can detect `Identity` / `TargetExists` / `DuplicateTarget` /
+/// `Unresolved` conflicts with the full picture; pre-filtering
+/// "would change" here would short-circuit that.
+fn build_clean_requests(
+    entries: &[ScanEntry],
+    cfg: &CleanupConfig,
+    seq_groups: &HashMap<ProjectPath, String>,
+) -> Vec<RenameRequest> {
+    entries
+        .iter()
+        .map(|e| {
+            let original = e.path.file_name().unwrap_or("");
+            let cand = clean_basename(original, cfg, BUILTIN_COMPOUND_EXTS);
+            let req = RenameRequest::new(e.path.clone(), cand);
+            match seq_groups.get(&e.path) {
+                Some(g) => req.with_group_id(g.clone()),
+                None => req,
+            }
+        })
+        .collect()
+}
+
+/// Resolve `requests` into a [`RenamePreview`] under the requested
+/// fill-mode. `Prompt` wires in [`StdinHolePrompter`]; the other
+/// modes go through the non-interactive builder.
+fn resolve_preview(
+    requests: &[RenameRequest],
+    fill: &FillFlag,
+    placeholder: Option<&str>,
+    fs: &StdFileSystem,
+) -> Result<progest_core::rename::RenamePreview> {
+    let placeholder = placeholder.unwrap_or("_").to_string();
+    Ok(match fill {
+        FillFlag::Skip => build_preview(requests, &FillMode::Skip, fs)?,
+        FillFlag::Placeholder => build_preview(requests, &FillMode::Placeholder(placeholder), fs)?,
+        FillFlag::Prompt => {
+            let prompter = StdinHolePrompter::from_stdio();
+            build_preview_with_prompter(requests, &prompter, fs)?
+        }
+    })
+}
+
+/// Drop ops with `from == to` before checking cleanness:
+///
+/// - Identity (no rename needed) — the dominant case
+/// - Unresolved (`to` falls back to `from`) — already surfaced in
+///   the preview report; the user saw them and chose to apply
+///   anyway, so skip them silently rather than blocking apply
+fn drop_identity_ops(
+    preview: progest_core::rename::RenamePreview,
+) -> progest_core::rename::RenamePreview {
+    let actionable: Vec<_> = preview
+        .ops
+        .into_iter()
+        .filter(|op| op.from != op.to)
+        .collect();
+    progest_core::rename::RenamePreview { ops: actionable }
 }
 
 fn emit_apply_summary(outcome: &ApplyOutcome) {
@@ -505,10 +461,12 @@ fn emit_apply_summary(outcome: &ApplyOutcome) {
         println!("  group: {g}");
     }
     println!("  batch: {}", outcome.batch_id);
-    if !outcome.index_warnings.is_empty() {
-        println!("  index warnings: {}", outcome.index_warnings.len());
+    let index_warns = outcome.index_warnings().count();
+    if index_warns > 0 {
+        println!("  index warnings: {index_warns}");
     }
-    if !outcome.history_warnings.is_empty() {
-        println!("  history warnings: {}", outcome.history_warnings.len());
+    let history_warns = outcome.history_warnings().count();
+    if history_warns > 0 {
+        println!("  history warnings: {history_warns}");
     }
 }
