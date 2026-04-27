@@ -33,11 +33,20 @@ export type FlatViewSummary = {
    *  when filtered, it shows the violation count within that
    *  filter — useful for "how many psd files still have violations". */
   violationTotals: RichViolationCounts;
+  /** Per-category list of file paths that contributed to the totals
+   *  above, so the status bar can surface them on hover. Sorted in
+   *  the same order they appear in the FlatView results. */
+  violationFiles: {
+    naming: string[];
+    placement: string[];
+    sequence: string[];
+  };
 };
 
 const DEFAULT_SUMMARY: FlatViewSummary = {
   activeView: null,
   violationTotals: { naming: 0, placement: 0, sequence: 0 },
+  violationFiles: { naming: [], placement: [], sequence: [] },
 };
 
 const SummaryContext = React.createContext<FlatViewSummary>(DEFAULT_SUMMARY);

@@ -13,16 +13,50 @@ import { ViolationBadges } from "@/components/violation-badges";
  * loading spinner) lives in the FlatView header next to the input
  * that produced it.
  */
+/** Maximum entries listed inside a violation-badge tooltip. Extra
+ *  files collapse into a `+N more` line so the OS-rendered tooltip
+ *  doesn't try to show 10k paths. */
+const TOOLTIP_FILE_LIMIT = 25;
+
+function listForTooltip(label: string, paths: string[]): string {
+  if (paths.length === 0) return "";
+  const head = paths.slice(0, TOOLTIP_FILE_LIMIT).join("\n");
+  const extra = paths.length - TOOLTIP_FILE_LIMIT;
+  const tail = extra > 0 ? `\n+${extra} more` : "";
+  return `${label} (${paths.length}):\n${head}${tail}`;
+}
+
 export function StatusBar() {
   const { project } = useProject();
   const summary = useFlatViewSummary();
   const totals = summary.violationTotals;
+  const files = summary.violationFiles;
   const hasViolations = totals.naming + totals.placement + totals.sequence > 0;
 
   return (
     <footer className="flex h-6 items-center gap-3 overflow-hidden border-t bg-card px-3 text-[0.625rem] text-muted-foreground">
-      {/* Left section can shrink (min-w-0 + shrink) so a long project
-          root doesn't push the right-side badges out of view. */}
+      {/* Violation badges go first — most prominent corner of the
+          window, easiest to glance at. ViolationBadges' optional
+          per-category title shows the contributing file paths on
+          hover (capped at TOOLTIP_FILE_LIMIT to keep the OS tooltip
+          manageable on huge projects). */}
+      <span className="flex shrink-0 items-center">
+        {hasViolations ? (
+          <ViolationBadges
+            counts={totals}
+            titles={{
+              naming: listForTooltip("naming violations", files.naming),
+              placement: listForTooltip("placement violations", files.placement),
+              sequence: listForTooltip("sequence violations", files.sequence),
+            }}
+          />
+        ) : (
+          <span className="text-foreground/60">no violations</span>
+        )}
+      </span>
+
+      {/* Project info shrinks (min-w-0 + truncate) so a long root
+          doesn't push the active-view chip off the right edge. */}
       {project ? (
         <span
           className="flex min-w-0 shrink items-center gap-1 truncate"
@@ -40,27 +74,13 @@ export function StatusBar() {
 
       {summary.activeView ? (
         <span
-          className="flex min-w-0 shrink items-center gap-1 truncate"
+          className="ml-auto flex min-w-0 shrink-0 items-center gap-1 truncate"
           title={summary.activeView.query}
         >
           <Eye className="size-3 shrink-0" />
           <span className="truncate">view: {summary.activeView.name}</span>
         </span>
       ) : null}
-
-      {/* Right section never shrinks — badges stay visible even when
-          the left side is wide. Reuses <ViolationBadges> so the colour
-          palette (naming amber / placement sky / sequence violet)
-          matches the per-row chips in the result list. */}
-      <span className="ml-auto flex shrink-0 items-center gap-2">
-        {hasViolations ? (
-          <span className="flex items-center">
-            <ViolationBadges counts={totals} />
-          </span>
-        ) : (
-          <span className="text-foreground/60">no violations</span>
-        )}
-      </span>
     </footer>
   );
 }

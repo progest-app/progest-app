@@ -49,15 +49,21 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   React.useEffect(() => {
     const activeView =
       activeViewId !== null ? (views.find((v) => v.id === activeViewId) ?? null) : null;
-    const totals = (response?.hits ?? []).reduce(
-      (acc, h) => ({
-        naming: acc.naming + h.violations.naming,
-        placement: acc.placement + h.violations.placement,
-        sequence: acc.sequence + h.violations.sequence,
-      }),
-      { naming: 0, placement: 0, sequence: 0 },
-    );
-    reportSummary({ activeView, violationTotals: totals });
+    const totals = { naming: 0, placement: 0, sequence: 0 };
+    const files = {
+      naming: [] as string[],
+      placement: [] as string[],
+      sequence: [] as string[],
+    };
+    for (const hit of response?.hits ?? []) {
+      totals.naming += hit.violations.naming;
+      totals.placement += hit.violations.placement;
+      totals.sequence += hit.violations.sequence;
+      if (hit.violations.naming > 0) files.naming.push(hit.path);
+      if (hit.violations.placement > 0) files.placement.push(hit.path);
+      if (hit.violations.sequence > 0) files.sequence.push(hit.path);
+    }
+    reportSummary({ activeView, violationTotals: totals, violationFiles: files });
   }, [response, views, activeViewId, reportSummary]);
 
   const refreshViews = React.useCallback(async () => {

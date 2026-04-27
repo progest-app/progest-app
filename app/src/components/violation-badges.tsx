@@ -11,24 +11,43 @@ import type { RichViolationCounts } from "@/lib/ipc";
  * (`--badge-naming` / `--badge-placement` / `--badge-sequence`) so
  * dark mode swaps one variable instead of every utility — see
  * `customization.md §Dark Mode` in the shadcn skill for the rule.
+ *
+ * Optional `titles` populates a `title=` tooltip per category — the
+ * status bar uses this to show which files contributed to each
+ * count on hover.
  */
-export function ViolationBadges({ counts }: { counts: RichViolationCounts }) {
+export function ViolationBadges({
+  counts,
+  titles,
+}: {
+  counts: RichViolationCounts;
+  titles?: { naming?: string; placement?: string; sequence?: string };
+}) {
   const total = counts.naming + counts.placement + counts.sequence;
   if (total === 0) return null;
   return (
     <span className="ml-auto flex items-center gap-1 text-[0.625rem] tracking-wide">
       {counts.naming > 0 ? (
-        <span className="rounded bg-badge-naming/15 px-1 py-0.5 text-badge-naming">
+        <span
+          className="rounded bg-badge-naming/15 px-1 py-0.5 text-badge-naming"
+          title={titles?.naming}
+        >
           <Triangle className="inline size-2.5" /> {counts.naming}
         </span>
       ) : null}
       {counts.placement > 0 ? (
-        <span className="rounded bg-badge-placement/15 px-1 py-0.5 text-badge-placement">
+        <span
+          className="rounded bg-badge-placement/15 px-1 py-0.5 text-badge-placement"
+          title={titles?.placement}
+        >
           <Hash className="inline size-2.5" /> {counts.placement}
         </span>
       ) : null}
       {counts.sequence > 0 ? (
-        <span className="rounded bg-badge-sequence/15 px-1 py-0.5 text-badge-sequence">
+        <span
+          className="rounded bg-badge-sequence/15 px-1 py-0.5 text-badge-sequence"
+          title={titles?.sequence}
+        >
           ≡ {counts.sequence}
         </span>
       ) : null}
