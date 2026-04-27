@@ -42,32 +42,37 @@ export function StatusBar() {
 
   return (
     <footer className="flex h-6 items-center gap-3 overflow-hidden border-t bg-card px-3 text-[0.625rem] text-muted-foreground">
+      {/* Left section can shrink (min-w-0 + shrink) so a long project
+          root doesn't push the right-side badges out of view. */}
       {project ? (
         <span
-          className="flex min-w-0 items-center gap-1"
+          className="flex min-w-0 shrink items-center gap-1 truncate"
           title={project.root}
         >
-          <Folder className="size-3" />
+          <Folder className="size-3 shrink-0" />
           <span className="truncate font-medium text-foreground">{project.name}</span>
           <span className="hidden truncate sm:inline">— {project.root}</span>
         </span>
       ) : (
-        <span className="flex items-center gap-1 italic">
+        <span className="flex shrink-0 items-center gap-1 italic">
           <Folder className="size-3" /> No project attached
         </span>
       )}
 
       {summary.activeView ? (
         <span
-          className="flex min-w-0 items-center gap-1"
+          className="flex min-w-0 shrink items-center gap-1 truncate"
           title={summary.activeView.query}
         >
-          <Eye className="size-3" />
+          <Eye className="size-3 shrink-0" />
           <span className="truncate">view: {summary.activeView.name}</span>
         </span>
       ) : null}
 
-      <span className="ml-auto flex items-center gap-2">
+      {/* Right section never shrinks — badges + counts stay visible
+          even when the left side is wide. `gap-2` between badges,
+          `shrink-0` on the row so flex doesn't squeeze counts to 0. */}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
         {summary.warnings.length > 0 ? (
           <Badge tone="warning" title={summary.warnings.join("\n")}>
             <AlertTriangle className="inline size-2.5" /> {summary.warnings.length}
