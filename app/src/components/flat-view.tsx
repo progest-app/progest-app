@@ -14,6 +14,7 @@ import {
   type ViewDisplay,
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
+import { useReportFlatView } from "@/lib/flat-view-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +31,7 @@ const DEBOUNCE_MS = 200;
 
 export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const { project } = useProject();
+  const reportSummary = useReportFlatView();
   const [query, setQuery] = React.useState("");
   const [display, setDisplay] = React.useState<ViewDisplay>("list");
   const [response, setResponse] = React.useState<SearchResponse | null>(null);
@@ -38,6 +40,23 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const [views, setViews] = React.useState<View[]>([]);
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
   const [saveOpen, setSaveOpen] = React.useState(false);
+
+  // Mirror our local state onto the FlatView summary context so the
+  // bottom <StatusBar> renders the same hit count / loading / warning
+  // / parse-error / active-view indicators without owning the search
+  // effect itself.
+  React.useEffect(() => {
+    const activeView =
+      activeViewId !== null ? (views.find((v) => v.id === activeViewId) ?? null) : null;
+    reportSummary({
+      loading,
+      hitCount: response && !response.parse_error ? response.hits.length : null,
+      warnings: response?.warnings ?? [],
+      parseError: response?.parse_error?.message ?? null,
+      error,
+      activeView,
+    });
+  }, [loading, response, error, views, activeViewId, reportSummary]);
 
   const refreshViews = React.useCallback(async () => {
     try {
@@ -187,26 +206,6 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
           </Button>
         </div>
       </header>
-      <div className="border-b px-3 py-1 text-[0.625rem]">
-        {loading ? <span className="text-muted-foreground">searching…</span> : null}
-        {response?.parse_error ? (
-          <span className="text-destructive">
-            parse error: {response.parse_error.message}
-          </span>
-        ) : null}
-        {response?.warnings && response.warnings.length > 0 ? (
-          <span className="text-warning">
-            {response.warnings.length} warning
-            {response.warnings.length === 1 ? "" : "s"}: {response.warnings.join("; ")}
-          </span>
-        ) : null}
-        {error ? <span className="text-destructive">{error}</span> : null}
-        {response && !response.parse_error ? (
-          <span className="ml-auto text-muted-foreground">
-            {response.hits.length} hit{response.hits.length === 1 ? "" : "s"}
-          </span>
-        ) : null}
-      </div>
       <div className="flex-1 overflow-auto">
         {response && !response.parse_error ? (
           display === "list" ? (
