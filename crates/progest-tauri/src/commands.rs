@@ -32,8 +32,8 @@ use progest_core::search::views::{
     save as save_views_doc, upsert as upsert_view,
 };
 use progest_core::search::{
-    CustomFieldKind, CustomFields, RichCustomField, RichSearchHit, RichViolationCounts, execute,
-    parse, plan, project_hits, validate_with_catalog,
+    CustomFieldKind, CustomFields, RichCustomField, RichSearchHit, RichViolationCounts, SearchHit,
+    execute, parse, plan, project_hits, validate_with_catalog,
 };
 use serde::Serialize;
 use tauri::State;
@@ -187,7 +187,10 @@ pub fn search_execute(query: String, state: State<'_, AppState>) -> Result<Searc
         .index
         .with_connection(|conn| execute(conn, &planned))
         .map_err(|e| format!("execute search: {e}"))?;
-    let rich = project_hits(&ctx.index, &hits).map_err(|e| format!("project search hits: {e}"))?;
+    let mut rich =
+        project_hits(&ctx.index, &hits).map_err(|e| format!("project search hits: {e}"))?;
+    // See `is_plumbing_path` — same stale-index defense as files_list_all.
+    rich.retain(|h| !is_plumbing_path(&h.path));
 
     let warnings: Vec<String> = validated.warnings.iter().map(ToString::to_string).collect();
 
@@ -319,6 +322,69 @@ pub struct FileEntryWire {
     pub custom_fields: Vec<RichCustomField>,
 }
 
+/// Return every indexed file as a [`RichSearchHit`], sorted
+/// case-insensitively by basename. Backs the `FlatView` empty-query
+/// state ("show me everything").
+///
+/// `.meta` sidecars never appear in the index (reconciler skips them
+/// via `is_sidecar`), so we don't need an extra suffix filter here —
+/// the tree view's filter handles the FS surface separately.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn files_list_all(state: State<'_, AppState>) -> Result<Vec<RichSearchHit>, String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+    // Run an ad-hoc SELECT against the files table — there's no
+    // planner shortcut for "match all" today, and writing one for one
+    // caller isn't worth the surface. The closure boxes rusqlite
+    // errors into String at the boundary so this crate doesn't have
+    // to take a direct rusqlite dep.
+    let hits: Vec<SearchHit> = ctx.index.with_connection(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT file_id, path \
+                 FROM files \
+                 ORDER BY LOWER(COALESCE(name, path)) ASC, path ASC, file_id ASC",
+            )
+            .map_err(|e| format!("prepare: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(SearchHit {
+                    file_id: row.get::<_, String>(0)?,
+                    path: row.get::<_, String>(1)?,
+                })
+            })
+            .map_err(|e| format!("query: {e}"))?;
+        let mut out: Vec<SearchHit> = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| format!("row: {e}"))?);
+        }
+        Ok::<Vec<SearchHit>, String>(out)
+    })?;
+
+    let mut rich = project_hits(&ctx.index, &hits).map_err(|e| format!("project files: {e}"))?;
+    // Defense in depth: even after the scanner-level ignore now drops
+    // `.dirmeta.toml`, an index that hasn't been re-scanned since this
+    // build still contains stale sidecar rows. Drop them here so the
+    // UI never surfaces project plumbing.
+    rich.retain(|h| !is_plumbing_path(&h.path));
+    Ok(rich)
+}
+
+/// True for paths whose basename is project plumbing (`.meta` /
+/// `.meta.tmp` sidecar, or `.dirmeta.toml` directory metadata) that
+/// should never reach the user-visible result lists. The scanner now
+/// filters these too — the IPC layer keeps the check as a safety net
+/// for indexes carried over from older builds.
+fn is_plumbing_path(path: &str) -> bool {
+    let basename = std::path::Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    is_sidecar_filename(basename) || basename == ".dirmeta.toml"
+}
+
 /// List the immediate children of `path` (project-relative; "" or "."
 /// = root). Directories come first, then files; each list is sorted
 /// case-insensitively for stable UI ordering. Hidden files (`.foo`)
@@ -415,6 +481,14 @@ fn build_dir_entry(
     if name.starts_with('.') {
         return Ok(None);
     }
+    // Sidecar metadata files (`foo.psd.meta`) and in-flight atomic
+    // writes (`foo.psd.meta.tmp`) are project plumbing — never user
+    // content. The reconciler already excludes them from the index
+    // via `is_sidecar()`, but the tree view reads the FS directly so
+    // we filter here too.
+    if is_sidecar_filename(&name) {
+        return Ok(None);
+    }
     let entry_rel = if rel.is_empty() {
         name.clone()
     } else {
@@ -466,6 +540,20 @@ fn build_dir_entry(
         kind: DirEntryKind::File,
         file: Some(file_payload),
     }))
+}
+
+/// True for `.meta` sidecars or their `.meta.tmp` atomic-write
+/// staging counterparts. Compared on the basename, never on the
+/// full path (the substring match is unsafe at path level).
+///
+/// Uses `Path::extension` for the canonical case so `foo.psd.META`
+/// gets the same treatment as `foo.psd.meta`; `.meta.tmp` is matched
+/// as a literal suffix because the staging convention is fixed-case.
+fn is_sidecar_filename(name: &str) -> bool {
+    std::path::Path::new(name)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("meta"))
+        || name.ends_with(".meta.tmp")
 }
 
 fn kind_label(kind: progest_core::meta::Kind) -> &'static str {

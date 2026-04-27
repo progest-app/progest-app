@@ -196,3 +196,11 @@ export async function filesListDir(path: string): Promise<DirEntry[]> {
     throw toIpcError(e);
   }
 }
+
+export async function filesListAll(): Promise<RichSearchHit[]> {
+  try {
+    return await invoke<RichSearchHit[]>("files_list_all");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}

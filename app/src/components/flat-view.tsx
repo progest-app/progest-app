@@ -3,6 +3,7 @@ import { LayoutGrid, List as ListIcon, Save, Trash2, FileIcon } from "lucide-rea
 
 import {
   IpcError,
+  filesListAll,
   searchExecute,
   viewDelete,
   viewList,
@@ -48,27 +49,59 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
     void refreshViews();
   }, [refreshViews]);
 
-  // Debounced search whenever query changes.
+  // Debounced search whenever query changes. Empty query falls
+  // through to `files_list_all` so the panel always shows *something*
+  // — name-sorted full project — instead of an empty placeholder.
   React.useEffect(() => {
     const trimmed = query.trim();
+    let cancelled = false;
     if (trimmed.length === 0) {
-      setResponse(null);
-      setLoading(false);
-      return;
+      setLoading(true);
+      filesListAll()
+        .then((hits) => {
+          if (cancelled) return;
+          setResponse({
+            query: "",
+            hits,
+            warnings: [],
+            parse_error: null,
+          });
+          setError(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          if (e instanceof IpcError && e.isNoProject) {
+            setResponse(null);
+          } else {
+            setError(e instanceof IpcError ? e.raw : String(e));
+            setResponse(null);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }
     setLoading(true);
     const handle = setTimeout(async () => {
       try {
+        if (cancelled) return;
         setResponse(await searchExecute(trimmed));
         setError(null);
       } catch (e) {
+        if (cancelled) return;
         setError(e instanceof IpcError ? e.raw : String(e));
         setResponse(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, DEBOUNCE_MS);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [query]);
 
   const onSelectView = (id: string) => {
@@ -165,8 +198,6 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
           ) : (
             <HitGrid hits={response.hits} onPick={props.onPickHit} />
           )
-        ) : query.trim().length === 0 ? (
-          <Empty>Type a query or pick a saved view.</Empty>
         ) : null}
       </div>
       <SaveAsDialog

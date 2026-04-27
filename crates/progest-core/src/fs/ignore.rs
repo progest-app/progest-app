@@ -39,6 +39,12 @@ pub const DEFAULT_PATTERNS: &[&str] = &[
     "*.psd~",
     ".autosave/",
     ".progest/",
+    // Project-level metadata sidecars. `<asset>.meta` is filtered at
+    // the reconciler layer (see `is_sidecar` in `core::reconcile`)
+    // because it's per-asset and pairs with the indexed file; the
+    // directory-scoped `.dirmeta.toml` has no asset to pair with so we
+    // drop it at scan time instead.
+    ".dirmeta.toml",
 ];
 
 /// Location of the user-editable ignore file, relative to the project root.

@@ -55,6 +55,7 @@ pub fn run() {
             commands::view_save,
             commands::view_delete,
             commands::files_list_dir,
+            commands::files_list_all,
         ])
         .setup(|_app| Ok(()))
         .run(tauri::generate_context!())
