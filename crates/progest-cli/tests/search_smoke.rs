@@ -161,6 +161,35 @@ fn view_save_then_search_via_view_id() {
 }
 
 #[test]
+fn view_save_persists_display_grid() {
+    // --display grid round-trips through views.toml so the UI loads
+    // the saved view in grid mode without re-typing the preference.
+    let tmp = TempDir::new().unwrap();
+    let cwd = tmp.path();
+    init_project(cwd).unwrap();
+
+    let (_, _, code) = run(
+        cwd,
+        &[
+            "view",
+            "save",
+            "tiled",
+            "--query",
+            "is:violation",
+            "--display",
+            "grid",
+        ],
+    );
+    assert_eq!(code, 0);
+
+    let (json, code) = run_json(cwd, &["view", "list", "--format", "json"]);
+    assert_eq!(code, 0);
+    let arr = json.as_array().unwrap();
+    assert_eq!(arr[0]["id"].as_str(), Some("tiled"));
+    assert_eq!(arr[0]["display"].as_str(), Some("grid"));
+}
+
+#[test]
 fn view_delete_removes_entry() {
     let tmp = TempDir::new().unwrap();
     let cwd = tmp.path();

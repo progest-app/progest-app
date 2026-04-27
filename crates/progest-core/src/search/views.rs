@@ -21,6 +21,18 @@ use super::parse::{ParseError, parse};
 /// fatal — but the loader currently surfaces only structural errors).
 pub const VIEWS_SCHEMA_VERSION: u32 = 1;
 
+/// Display mode hint persisted alongside a saved view. The flat view
+/// surface honors the saved value when a view is loaded; ad-hoc
+/// queries fall back to a session-local toggle. Tree view ignores it
+/// (always list).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewDisplay {
+    #[default]
+    List,
+    Grid,
+}
+
 /// One saved view.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct View {
@@ -34,6 +46,10 @@ pub struct View {
     /// Reserved for v1.x. Loaded as raw text, not interpreted yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort: Option<String>,
+    /// Display mode for the flat view (defaults to `list`). Forward-
+    /// compat: missing on disk = list, unknown values rejected by serde.
+    #[serde(default)]
+    pub display: ViewDisplay,
 }
 
 impl View {
@@ -187,6 +203,7 @@ mod tests {
             description: None,
             group_by: None,
             sort: None,
+            display: ViewDisplay::default(),
         }
     }
 
@@ -257,6 +274,34 @@ mod tests {
         let mut doc = ViewsDocument::default();
         let err = delete(&mut doc, "missing").unwrap_err();
         assert!(matches!(err, ViewError::UnknownId { .. }));
+    }
+
+    #[test]
+    fn display_round_trips() {
+        let fs = MemFileSystem::new();
+        let path = ProjectPath::new("views.toml").unwrap();
+        let mut doc = ViewsDocument::default();
+        let mut grid = view("grid-shots", "is:violation");
+        grid.display = ViewDisplay::Grid;
+        upsert(&mut doc, grid).unwrap();
+        upsert(&mut doc, view("list-default", "tag:wip")).unwrap();
+        save(&fs, &path, &doc).unwrap();
+
+        let loaded = load(&fs, &path).unwrap();
+        assert_eq!(loaded.views[0].display, ViewDisplay::Grid);
+        assert_eq!(loaded.views[1].display, ViewDisplay::List);
+    }
+
+    #[test]
+    fn missing_display_defaults_to_list() {
+        // Older views.toml predating the `display` field — schema-
+        // forward-compat: missing key resolves to List on load.
+        let fs = MemFileSystem::new();
+        let path = ProjectPath::new("views.toml").unwrap();
+        let body = "schema_version = 1\n\n[[views]]\nid = \"legacy\"\nname = \"Legacy\"\nquery = \"tag:wip\"\n";
+        fs.write_atomic(&path, body.as_bytes()).unwrap();
+        let loaded = load(&fs, &path).unwrap();
+        assert_eq!(loaded.views[0].display, ViewDisplay::List);
     }
 
     #[test]

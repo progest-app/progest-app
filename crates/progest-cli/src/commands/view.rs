@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use progest_core::fs::{ProjectPath, StdFileSystem};
 use progest_core::search::views::{
-    View, ViewError, ViewsDocument, delete as delete_view, load as load_views_doc,
+    View, ViewDisplay, ViewError, ViewsDocument, delete as delete_view, load as load_views_doc,
     save as save_views_doc, upsert as upsert_view,
 };
 use serde::Serialize;
@@ -21,6 +21,7 @@ pub enum ViewCommand {
         query: String,
         description: Option<String>,
         group_by: Option<String>,
+        display: Option<ViewDisplay>,
     },
     Delete {
         id: String,
@@ -52,6 +53,7 @@ pub fn run(cwd: &Path, args: &ViewArgs) -> Result<i32> {
             query,
             description,
             group_by,
+            display,
         } => {
             let view = View {
                 id: id.clone(),
@@ -60,6 +62,7 @@ pub fn run(cwd: &Path, args: &ViewArgs) -> Result<i32> {
                 description: description.clone(),
                 group_by: group_by.clone(),
                 sort: None,
+                display: display.unwrap_or_default(),
             };
             if let Err(e) = upsert_view(&mut doc, view) {
                 eprintln!("error: {e}");
