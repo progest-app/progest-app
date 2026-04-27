@@ -62,6 +62,7 @@ Progest は既存ディレクトリにそのまま寄り添い、現場が既に
 - **コア**: Rust
 - **UI シェル**: [Tauri](https://tauri.app/) v2
 - **UI**: React + [shadcn/ui](https://ui.shadcn.com/)
+- **フロントエンドツールチェーン**: [Vite+](https://viteplus.dev/)（Rolldown / oxlint / oxfmt / tsgo を統合）
 - **インデックス**: SQLite + FTS5
 - **モノレポ**:
   - `crates/progest-core` — ドメインロジック
@@ -93,10 +94,10 @@ mise run install
 
 | コマンド | 内容 |
 | --- | --- |
-| `mise run check` | rustfmt `--check` + clippy `-D warnings` + `tsc --noEmit`。**コミット前に必ず通す** |
+| `mise run check` | rustfmt `--check` + clippy `-D warnings` + oxfmt + oxlint（`vp check` 経由）+ `tsc --noEmit`。**コミット前に必ず通す** |
 | `mise run test` | `cargo test --workspace` |
-| `mise run build` | `cargo build --workspace` + `vite build` |
-| `mise run fmt` | `cargo fmt --all` |
+| `mise run build` | `cargo build --workspace` + `vp build`（Rolldown） |
+| `mise run fmt` | `cargo fmt --all` + `vp fmt` |
 | `mise run dev` | Vite 開発サーバーのみ起動（フロントのみで反復する時） |
 | `mise run tauri-dev` | デスクトップアプリを開発モードで起動（Vite + Tauri ウィンドウ） |
 | `mise run tauri-build` | リリース用デスクトップバンドル |
@@ -108,7 +109,7 @@ mise run install
 
 ```
 .
-├── app/                     # Vite + React 19 + TS フロントエンド（pnpm workspace）
+├── app/                     # Vite+ + React 19 + TS フロントエンド（pnpm workspace）
 ├── crates/
 │   ├── progest-core/        # ドメインロジック本体
 │   ├── progest-cli/         # `progest` バイナリ
