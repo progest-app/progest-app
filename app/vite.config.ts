@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -9,8 +9,19 @@ export default defineConfig({
 
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
+  },
+
+  // Vite+ unified toolchain (oxlint + oxfmt + tsgo).
+  // https://viteplus.dev/guide/migrate
+  fmt: {
+    ignorePatterns: ["dist/**", "src/components/ui/**"],
+  },
+  lint: {
+    // Rule + ignore config lives in `.oxlintrc.json`; `options` holds CLI-style
+    // runtime knobs only (typeAware, denyWarnings, etc.).
+    options: {},
   },
 
   // Tauri expects a fixed port, fail if that port is not available.
