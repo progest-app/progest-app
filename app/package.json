@@ -1,14 +1,18 @@
 {
   "name": "@progest/app",
-  "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "private": true,
   "description": "Progest frontend (React + Vite + TypeScript).",
+  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "dev": "vp dev",
+    "build": "tsc -b && vp build",
+    "preview": "vp preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "vp lint",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "check": "vp check && tsc --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.2.7",
@@ -33,7 +37,9 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^4.7.0",
+    "@voidzero-dev/vite-plus-core": "^0.1.19",
     "typescript": "^5.9.3",
-    "vite": "^6.4.0"
+    "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+    "vite-plus": "^0.1.19"
   }
 }

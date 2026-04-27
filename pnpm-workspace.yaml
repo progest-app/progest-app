@@ -1,2 +1,9 @@
 packages:
   - "app"
+
+# Route every transitive Vite/Vitest resolution through the Vite+ core/test
+# bundles so the toolchain stays single-source.
+# https://viteplus.dev/guide/migrate
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vitest: npm:@voidzero-dev/vite-plus-test@latest

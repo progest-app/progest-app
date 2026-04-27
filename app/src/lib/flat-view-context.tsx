@@ -50,20 +50,15 @@ const DEFAULT_SUMMARY: FlatViewSummary = {
 };
 
 const SummaryContext = React.createContext<FlatViewSummary>(DEFAULT_SUMMARY);
-const ReportContext = React.createContext<(patch: Partial<FlatViewSummary>) => void>(
-  () => {},
-);
+const ReportContext = React.createContext<(patch: Partial<FlatViewSummary>) => void>(() => {});
 
 export function FlatViewSummaryProvider({ children }: { children: React.ReactNode }) {
   const [summary, setSummary] = React.useState<FlatViewSummary>(DEFAULT_SUMMARY);
-  const report = React.useCallback(
-    (patch: Partial<FlatViewSummary>) => {
-      // Functional update so multiple reports inside one tick don't
-      // clobber each other.
-      setSummary((prev) => ({ ...prev, ...patch }));
-    },
-    [],
-  );
+  const report = React.useCallback((patch: Partial<FlatViewSummary>) => {
+    // Functional update so multiple reports inside one tick don't
+    // clobber each other.
+    setSummary((prev) => ({ ...prev, ...patch }));
+  }, []);
   return (
     <SummaryContext.Provider value={summary}>
       <ReportContext.Provider value={report}>{children}</ReportContext.Provider>

@@ -209,16 +209,12 @@ export function CommandPalette(props: { onPickHit?: (hit: RichSearchHit) => void
                 </CommandGroup>
               ) : (
                 <CommandEmpty>
-                  Start typing a query. e.g. <code>tag:wip</code>,{" "}
-                  <code>type:psd</code>, <code>is:misplaced</code>.
+                  Start typing a query. e.g. <code>tag:wip</code>, <code>type:psd</code>,{" "}
+                  <code>is:misplaced</code>.
                 </CommandEmpty>
               )
             ) : (
-              <SearchBody
-                response={response}
-                loading={loading}
-                onPick={onPickHit}
-              />
+              <SearchBody response={response} loading={loading} onPick={onPickHit} />
             )}
           </CommandList>
         </Command>
@@ -261,11 +257,7 @@ function NoProjectBody(props: {
           <CommandSeparator />
           <CommandGroup heading="Recent projects">
             {recent.map((entry) => (
-              <CommandItem
-                key={entry.root}
-                value={entry.root}
-                onSelect={() => onPickRecent(entry)}
-              >
+              <CommandItem key={entry.root} value={entry.root} onSelect={() => onPickRecent(entry)}>
                 <FolderOpen className="opacity-60" />
                 <div className="flex min-w-0 flex-col">
                   <span className="truncate">{entry.name || entry.root}</span>
@@ -287,8 +279,7 @@ function NoProjectBody(props: {
         </>
       ) : (
         <CommandEmpty>
-          No project attached. Pick a folder containing{" "}
-          <code>.progest/</code> to get started.
+          No project attached. Pick a folder containing <code>.progest/</code> to get started.
         </CommandEmpty>
       )}
     </>
@@ -309,9 +300,7 @@ function CommandsBody(props: {
   if (commands.length === 0) {
     return (
       <CommandEmpty>
-        {emptyHint.length > 0
-          ? `No commands matching "${emptyHint}".`
-          : "No commands available."}
+        {emptyHint.length > 0 ? `No commands matching "${emptyHint}".` : "No commands available."}
       </CommandEmpty>
     );
   }
@@ -323,21 +312,14 @@ function CommandsBody(props: {
           {idx > 0 ? <CommandSeparator /> : null}
           <CommandGroup heading={group || undefined}>
             {items.map((cmd) => (
-              <CommandItem
-                key={cmd.id}
-                value={cmd.id}
-                onSelect={() => onPick(cmd)}
-              >
+              <CommandItem key={cmd.id} value={cmd.id} onSelect={() => onPick(cmd)}>
                 <ChevronRight className="opacity-60" />
                 {/* min-w-0 lets the truncate kick in inside cmdk's
                     flex row; without it the span ignores width and
                     pushes the shortcut off-screen / onto a new line. */}
                 <span className="min-w-0 truncate">{cmd.title}</span>
                 {cmd.hint ? (
-                  <CommandShortcut
-                    className="min-w-0 max-w-[55%] truncate"
-                    title={cmd.hint}
-                  >
+                  <CommandShortcut className="min-w-0 max-w-[55%] truncate" title={cmd.hint}>
                     {cmd.hint}
                   </CommandShortcut>
                 ) : null}
@@ -426,9 +408,7 @@ function PaletteStatus(props: {
   }
   if (lines.length === 0) return null;
   return (
-    <div className="flex items-center gap-3 border-t px-3 py-1.5 text-[0.625rem]">
-      {lines}
-    </div>
+    <div className="flex items-center gap-3 border-t px-3 py-1.5 text-[0.625rem]">{lines}</div>
   );
 }
 

@@ -45,8 +45,6 @@ export function fuzzyMatch(query: string, command: PaletteCommand): boolean {
     .split(/\s+/)
     .filter((s) => s.length > 0);
   if (needles.length === 0) return true;
-  const haystack = [command.title, command.id, ...(command.keywords ?? [])]
-    .join(" ")
-    .toLowerCase();
+  const haystack = [command.title, command.id, ...(command.keywords ?? [])].join(" ").toLowerCase();
   return needles.every((n) => haystack.includes(n));
 }

@@ -62,6 +62,7 @@ Progest sits next to your existing directories, learns the rules you already wan
 - **Core**: Rust
 - **UI shell**: [Tauri](https://tauri.app/) v2
 - **UI**: React + [shadcn/ui](https://ui.shadcn.com/)
+- **Frontend toolchain**: [Vite+](https://viteplus.dev/) (unified Rolldown / oxlint / oxfmt / tsgo)
 - **Index**: SQLite + FTS5
 - **Monorepo**:
   - `crates/progest-core` — domain logic
@@ -93,10 +94,10 @@ mise run install
 
 | Command | What it does |
 | --- | --- |
-| `mise run check` | rustfmt `--check`, clippy `-D warnings`, `tsc --noEmit`. **Required to pass before every commit.** |
+| `mise run check` | rustfmt `--check`, clippy `-D warnings`, oxfmt + oxlint (via `vp check`), `tsc --noEmit`. **Required to pass before every commit.** |
 | `mise run test` | `cargo test --workspace` |
-| `mise run build` | `cargo build --workspace` + `vite build` |
-| `mise run fmt` | `cargo fmt --all` |
+| `mise run build` | `cargo build --workspace` + `vp build` (Rolldown) |
+| `mise run fmt` | `cargo fmt --all` + `vp fmt` |
 | `mise run dev` | Vite dev server only (frontend iteration, no desktop shell) |
 | `mise run tauri-dev` | Full desktop app in dev mode (starts Vite + Tauri window) |
 | `mise run tauri-build` | Release desktop bundle |
@@ -108,7 +109,7 @@ Raw commands still work — `cargo test`, `pnpm --filter @progest/app dev`, `pnp
 
 ```
 .
-├── app/                     # Vite + React 19 + TS frontend (pnpm workspace member)
+├── app/                     # Vite+ + React 19 + TS frontend (pnpm workspace member)
 ├── crates/
 │   ├── progest-core/        # all domain logic
 │   ├── progest-cli/         # `progest` binary

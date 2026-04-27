@@ -25,17 +25,20 @@ run = [
 ]
 
 [tasks.check]
-description = "Run all static checks: rustfmt, clippy, tsc (must pass before committing)"
+description = "Run all static checks: rustfmt, clippy, oxfmt, oxlint, tsc (must pass before committing)"
 depends = ["install"]
 run = [
   "cargo fmt --all -- --check",
   "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-  "pnpm --filter @progest/app typecheck",
+  "pnpm --filter @progest/app check",
 ]
 
 [tasks.fmt]
-description = "Format Rust sources with rustfmt"
-run = "cargo fmt --all"
+description = "Format Rust sources with rustfmt and the frontend with oxfmt"
+run = [
+  "cargo fmt --all",
+  "pnpm --filter @progest/app fmt",
+]
 
 [tasks.test]
 description = "Run all Rust tests"
