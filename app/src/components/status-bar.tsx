@@ -1,44 +1,23 @@
-import * as React from "react";
-import { Folder, Loader2, Eye, AlertTriangle, AlertCircle } from "lucide-react";
+import { Folder, Eye } from "lucide-react";
 
 import { useProject } from "@/lib/project-context";
 import { useFlatViewSummary } from "@/lib/flat-view-context";
-
-/**
- * Tiny inline badge used in the status bar for warning / error
- * counts. Styled like the violation chips in `ViolationBadges` —
- * rounded pill, semantic-token tinted background. Kept local to
- * the status bar; if a third caller appears, hoist into the shared
- * components directory.
- */
-function Badge(props: {
-  tone: "warning" | "destructive";
-  title?: string;
-  children: React.ReactNode;
-}) {
-  const tones: Record<typeof props.tone, string> = {
-    warning: "bg-warning/15 text-warning",
-    destructive: "bg-destructive/15 text-destructive",
-  };
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ${tones[props.tone]}`}
-      title={props.title}
-    >
-      {props.children}
-    </span>
-  );
-}
+import { ViolationBadges } from "@/components/violation-badges";
 
 /**
  * Bottom-of-window status row. Always visible — no project shows
  * "No project attached", a loaded project shows root + active view +
- * hit summary + warnings. Read-only; actions live on the TopBar /
- * inside the palette.
+ * aggregate violation badges across the current FlatView result set.
+ * Read-only; actions live on the TopBar / inside the palette, and
+ * per-query feedback (parse error, warnings, IPC error, hit count,
+ * loading spinner) lives in the FlatView header next to the input
+ * that produced it.
  */
 export function StatusBar() {
   const { project } = useProject();
   const summary = useFlatViewSummary();
+  const totals = summary.violationTotals;
+  const hasViolations = totals.naming + totals.placement + totals.sequence > 0;
 
   return (
     <footer className="flex h-6 items-center gap-3 overflow-hidden border-t bg-card px-3 text-[0.625rem] text-muted-foreground">
@@ -69,35 +48,18 @@ export function StatusBar() {
         </span>
       ) : null}
 
-      {/* Right section never shrinks — badges + counts stay visible
-          even when the left side is wide. `gap-2` between badges,
-          `shrink-0` on the row so flex doesn't squeeze counts to 0. */}
+      {/* Right section never shrinks — badges stay visible even when
+          the left side is wide. Reuses <ViolationBadges> so the colour
+          palette (naming amber / placement sky / sequence violet)
+          matches the per-row chips in the result list. */}
       <span className="ml-auto flex shrink-0 items-center gap-2">
-        {summary.warnings.length > 0 ? (
-          <Badge tone="warning" title={summary.warnings.join("\n")}>
-            <AlertTriangle className="inline size-2.5" /> {summary.warnings.length}
-          </Badge>
-        ) : null}
-        {summary.parseError ? (
-          <Badge tone="destructive" title={summary.parseError}>
-            <AlertCircle className="inline size-2.5" /> parse error
-          </Badge>
-        ) : null}
-        {summary.error ? (
-          <Badge tone="destructive" title={summary.error}>
-            <AlertCircle className="inline size-2.5" /> error
-          </Badge>
-        ) : null}
-        {summary.loading ? (
-          <span className="flex items-center gap-1">
-            <Loader2 className="size-3 animate-spin" /> searching…
+        {hasViolations ? (
+          <span className="flex items-center">
+            <ViolationBadges counts={totals} />
           </span>
-        ) : summary.hitCount !== null ? (
-          <span>
-            {summary.hitCount.toLocaleString()} hit
-            {summary.hitCount === 1 ? "" : "s"}
-          </span>
-        ) : null}
+        ) : (
+          <span className="text-foreground/60">no violations</span>
+        )}
       </span>
     </footer>
   );

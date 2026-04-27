@@ -1,12 +1,19 @@
 import * as React from "react";
 
-import type { View } from "@/lib/ipc";
+import type { RichViolationCounts, View } from "@/lib/ipc";
 
 /**
- * Cross-component summary of the FlatView's current state, lifted
- * out of `<FlatView>` so the bottom status bar can render the same
- * "searching… / 1234 hits / warnings" indicators without duplicating
- * the search effect.
+ * Cross-component summary of project-level state surfaced by the
+ * FlatView, lifted out of `<FlatView>` so the bottom status bar can
+ * render the same "active view / total violations" indicators
+ * without duplicating the search effect.
+ *
+ * Per-query feedback (parse error, validate warnings, IPC error,
+ * hit count, loading spinner) lives inside `<FlatView>`'s own
+ * header — those belong next to the input that produced them.
+ * Cross-cutting health indicators (project info, saved view,
+ * aggregate violation counts) live in the status bar so the user
+ * can glance at them regardless of which panel has focus.
  *
  * `<FlatView>` still owns the underlying state — query, response,
  * saved-view selection, debouncer — and `<StatusBar>` is a passive
@@ -18,28 +25,19 @@ import type { View } from "@/lib/ipc";
  *   3. `<StatusBar>` calls `useFlatViewSummary()` to render.
  */
 export type FlatViewSummary = {
-  /** True while the search effect is in flight. */
-  loading: boolean;
-  /** Total hits in the current response. `null` when no response is
-   *  loaded (e.g. before the first fetch on a fresh project). */
-  hitCount: number | null;
-  /** Validate-stage warnings (`unknown_key`, `type_and_multi`, …). */
-  warnings: string[];
-  /** Parse error message, if the current query failed to parse. */
-  parseError: string | null;
-  /** IPC-level error (e.g. `no_project`, sqlite errors). */
-  error: string | null;
   /** Saved view currently driving the FlatView, if any. */
   activeView: View | null;
+  /** Sum of naming / placement / sequence violations across the
+   *  current FlatView result set. When the query is empty (showing
+   *  every file) this acts as the project-wide health summary;
+   *  when filtered, it shows the violation count within that
+   *  filter — useful for "how many psd files still have violations". */
+  violationTotals: RichViolationCounts;
 };
 
 const DEFAULT_SUMMARY: FlatViewSummary = {
-  loading: false,
-  hitCount: null,
-  warnings: [],
-  parseError: null,
-  error: null,
   activeView: null,
+  violationTotals: { naming: 0, placement: 0, sequence: 0 },
 };
 
 const SummaryContext = React.createContext<FlatViewSummary>(DEFAULT_SUMMARY);

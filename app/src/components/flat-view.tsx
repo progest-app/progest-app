@@ -1,5 +1,5 @@
 import * as React from "react";
-import { LayoutGrid, List as ListIcon, Save, Trash2, FileIcon } from "lucide-react";
+import { LayoutGrid, List as ListIcon, Save, Trash2, FileIcon, X } from "lucide-react";
 
 import {
   IpcError,
@@ -41,22 +41,24 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
   const [saveOpen, setSaveOpen] = React.useState(false);
 
-  // Mirror our local state onto the FlatView summary context so the
-  // bottom <StatusBar> renders the same hit count / loading / warning
-  // / parse-error / active-view indicators without owning the search
-  // effect itself.
+  // Mirror project-level state onto the FlatView summary context so
+  // <StatusBar> can render the active view + aggregate violation
+  // counts. Per-query feedback (parse error, warnings, IPC error,
+  // hit count, loading spinner) stays local — the user expects that
+  // information next to the input that produced it.
   React.useEffect(() => {
     const activeView =
       activeViewId !== null ? (views.find((v) => v.id === activeViewId) ?? null) : null;
-    reportSummary({
-      loading,
-      hitCount: response && !response.parse_error ? response.hits.length : null,
-      warnings: response?.warnings ?? [],
-      parseError: response?.parse_error?.message ?? null,
-      error,
-      activeView,
-    });
-  }, [loading, response, error, views, activeViewId, reportSummary]);
+    const totals = (response?.hits ?? []).reduce(
+      (acc, h) => ({
+        naming: acc.naming + h.violations.naming,
+        placement: acc.placement + h.violations.placement,
+        sequence: acc.sequence + h.violations.sequence,
+      }),
+      { naming: 0, placement: 0, sequence: 0 },
+    );
+    reportSummary({ activeView, violationTotals: totals });
+  }, [response, views, activeViewId, reportSummary]);
 
   const refreshViews = React.useCallback(async () => {
     try {
@@ -159,6 +161,15 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
     if (activeViewId !== null) setActiveViewId(null);
   };
 
+  /** Clear the input. Triggered by the trailing X button and by
+   *  Esc while the input has focus. Decouples from the saved view
+   *  so the empty-query path runs against the live project, not the
+   *  view's frozen query. */
+  const onClearQuery = () => {
+    setQuery("");
+    if (activeViewId !== null) setActiveViewId(null);
+  };
+
   const onDeleteActive = async () => {
     if (!activeViewId) return;
     try {
@@ -173,12 +184,31 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   return (
     <section className="flex h-full flex-col">
       <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <Input
-          value={query}
-          onChange={(e) => onUserEdit(e.target.value)}
-          placeholder="tag:wip type:psd is:violation …"
-          className="h-8 max-w-md text-xs"
-        />
+        <div className="relative flex max-w-md flex-1 items-center">
+          <Input
+            value={query}
+            onChange={(e) => onUserEdit(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query.length > 0) {
+                e.preventDefault();
+                onClearQuery();
+              }
+            }}
+            placeholder="tag:wip type:psd is:violation …  (Esc to clear)"
+            className="h-8 pr-7 text-xs"
+          />
+          {query.length > 0 ? (
+            <button
+              type="button"
+              onClick={onClearQuery}
+              title="Clear query (Esc)"
+              aria-label="Clear query"
+              className="absolute right-1.5 inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          ) : null}
+        </div>
         <ViewSelect
           views={views}
           active={activeViewId}
@@ -206,6 +236,30 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
           </Button>
         </div>
       </header>
+      {/* Per-query feedback strip: searching spinner / parse error /
+          validate warnings / IPC error / hit count. Lives next to the
+          input (vs. in the status bar) because every line here is a
+          direct consequence of the query the user just typed. */}
+      <div className="flex items-center gap-3 border-b px-3 py-1 text-[0.625rem]">
+        {loading ? <span className="text-muted-foreground">searching…</span> : null}
+        {response?.parse_error ? (
+          <span className="text-destructive" title={response.parse_error.message}>
+            parse error: {response.parse_error.message}
+          </span>
+        ) : null}
+        {response?.warnings && response.warnings.length > 0 ? (
+          <span className="text-warning" title={response.warnings.join("\n")}>
+            {response.warnings.length} warning
+            {response.warnings.length === 1 ? "" : "s"}: {response.warnings.join("; ")}
+          </span>
+        ) : null}
+        {error ? <span className="text-destructive">{error}</span> : null}
+        {response && !response.parse_error ? (
+          <span className="ml-auto text-muted-foreground">
+            {response.hits.length} hit{response.hits.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
       <div className="flex-1 overflow-auto">
         {response && !response.parse_error ? (
           display === "list" ? (
