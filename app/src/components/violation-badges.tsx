@@ -6,6 +6,11 @@ import type { RichViolationCounts } from "@/lib/ipc";
  * Full violation badges with category icon + count. Designed for
  * inline rows where horizontal space is plentiful (palette results,
  * flat list).
+ *
+ * Colors come from semantic tokens defined in `index.css`
+ * (`--badge-naming` / `--badge-placement` / `--badge-sequence`) so
+ * dark mode swaps one variable instead of every utility — see
+ * `customization.md §Dark Mode` in the shadcn skill for the rule.
  */
 export function ViolationBadges({ counts }: { counts: RichViolationCounts }) {
   const total = counts.naming + counts.placement + counts.sequence;
@@ -13,17 +18,17 @@ export function ViolationBadges({ counts }: { counts: RichViolationCounts }) {
   return (
     <span className="ml-auto flex items-center gap-1 text-[0.625rem] tracking-wide">
       {counts.naming > 0 ? (
-        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-amber-600 dark:text-amber-300">
+        <span className="rounded bg-badge-naming/15 px-1 py-0.5 text-badge-naming">
           <Triangle className="inline size-2.5" /> {counts.naming}
         </span>
       ) : null}
       {counts.placement > 0 ? (
-        <span className="rounded bg-sky-500/15 px-1 py-0.5 text-sky-600 dark:text-sky-300">
+        <span className="rounded bg-badge-placement/15 px-1 py-0.5 text-badge-placement">
           <Hash className="inline size-2.5" /> {counts.placement}
         </span>
       ) : null}
       {counts.sequence > 0 ? (
-        <span className="rounded bg-violet-500/15 px-1 py-0.5 text-violet-600 dark:text-violet-300">
+        <span className="rounded bg-badge-sequence/15 px-1 py-0.5 text-badge-sequence">
           ≡ {counts.sequence}
         </span>
       ) : null}
@@ -40,9 +45,15 @@ export function ViolationDots({ counts }: { counts: RichViolationCounts }) {
   if (total === 0) return null;
   return (
     <span className="ml-1 flex items-center gap-0.5">
-      {counts.naming > 0 ? <span className="size-1.5 rounded-full bg-amber-500" /> : null}
-      {counts.placement > 0 ? <span className="size-1.5 rounded-full bg-sky-500" /> : null}
-      {counts.sequence > 0 ? <span className="size-1.5 rounded-full bg-violet-500" /> : null}
+      {counts.naming > 0 ? (
+        <span className="size-1.5 rounded-full bg-badge-naming" />
+      ) : null}
+      {counts.placement > 0 ? (
+        <span className="size-1.5 rounded-full bg-badge-placement" />
+      ) : null}
+      {counts.sequence > 0 ? (
+        <span className="size-1.5 rounded-full bg-badge-sequence" />
+      ) : null}
     </span>
   );
 }

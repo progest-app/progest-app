@@ -146,7 +146,7 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
           </span>
         ) : null}
         {response?.warnings && response.warnings.length > 0 ? (
-          <span className="text-amber-600 dark:text-amber-300">
+          <span className="text-warning">
             {response.warnings.length} warning
             {response.warnings.length === 1 ? "" : "s"}: {response.warnings.join("; ")}
           </span>
@@ -378,7 +378,7 @@ function SaveAsDialog(props: {
               </span>
             ) : null}
             {idValid && conflictId ? (
-              <span className="text-amber-600 dark:text-amber-300">
+              <span className="text-warning">
                 will replace existing view {id}
               </span>
             ) : null}

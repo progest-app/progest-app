@@ -319,7 +319,7 @@ function PaletteStatus(props: {
   }
   if (response?.warnings.length) {
     lines.push(
-      <span key="warn" className="text-amber-600 dark:text-amber-300">
+      <span key="warn" className="text-warning">
         {response.warnings.length} warning{response.warnings.length === 1 ? "" : "s"}:{" "}
         {response.warnings.join("; ")}
       </span>,

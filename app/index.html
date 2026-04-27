@@ -5,6 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>Progest</title>
+    <script>
+      // Resolve the persisted theme before React hydrates so the user
+      // never sees a light-mode flash on a dark-mode reload. Mirrors the
+      // logic in @/lib/theme-context exactly — keep them in sync.
+      (function () {
+        try {
+          var t = localStorage.getItem("progest:theme") || "system";
+          var dark =
+            t === "dark" ||
+            (t === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          // Storage / matchMedia unavailable — fall back to light.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

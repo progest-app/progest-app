@@ -5,17 +5,27 @@ import { CommandPalette } from "@/components/command-palette";
 import { TreeView } from "@/components/tree-view";
 import { FlatView } from "@/components/flat-view";
 import { ResultDetailDialog } from "@/components/result-detail-dialog";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { ProjectProvider, useProject } from "@/lib/project-context";
+import { ThemeProvider } from "next-themes";
 import type { DirEntry, RichSearchHit } from "@/lib/ipc";
 
 import "./App.css";
 
 export function App() {
   return (
-    <ProjectProvider>
-      <Shell />
-    </ProjectProvider>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      storageKey="progest:theme"
+      disableTransitionOnChange
+    >
+      <ProjectProvider>
+        <Shell />
+      </ProjectProvider>
+    </ThemeProvider>
   );
 }
 
@@ -93,9 +103,8 @@ function TopBar() {
         <FolderOpen />
         {project ? project.name : "Open project…"}
       </Button>
-      <span className="ml-auto text-xs text-muted-foreground">
-        ⌘K to search
-      </span>
+      <span className="ml-auto text-xs text-muted-foreground">⌘K to search</span>
+      <ThemeToggle />
     </header>
   );
 }
@@ -103,7 +112,10 @@ function TopBar() {
 function Welcome() {
   const { recent, openPicker, pickRecent, error } = useProject();
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-6 p-6">
+    <div className="relative flex h-screen flex-col items-center justify-center gap-6 p-6">
+      <div className="absolute top-3 right-3">
+        <ThemeToggle />
+      </div>
       <div className="text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Progest</h1>
         <p className="text-xs text-muted-foreground">
