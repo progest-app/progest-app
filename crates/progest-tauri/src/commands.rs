@@ -19,6 +19,7 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
+use progest_core::accepts::{AliasCatalog, SchemaLoad, load_alias_catalog};
 use progest_core::fs::ProjectPath;
 use progest_core::fs::ignore::IgnoreRules;
 use progest_core::index::Index;
@@ -32,7 +33,7 @@ use progest_core::search::views::{
 };
 use progest_core::search::{
     CustomFieldKind, CustomFields, RichCustomField, RichSearchHit, RichViolationCounts, execute,
-    parse, plan, project_hits, validate,
+    parse, plan, project_hits, validate_with_catalog,
 };
 use serde::Serialize;
 use tauri::State;
@@ -178,7 +179,8 @@ pub fn search_execute(query: String, state: State<'_, AppState>) -> Result<Searc
         }
     };
     let schema = load_schema(ctx).unwrap_or_default();
-    let validated = validate(&parsed, &schema);
+    let aliases = load_alias_catalog_for_ctx(ctx);
+    let validated = validate_with_catalog(&parsed, &schema, &aliases);
     let planned = plan(&validated);
 
     let hits = ctx
@@ -506,6 +508,23 @@ fn no_project_error() -> String {
 /// layer can validate against custom-field types without round-tripping
 /// through the CLI binary. Bad TOML silently degrades to "no schema",
 /// matching the CLI behavior for parity.
+/// Load the project's alias catalog, layering `schema.toml` `[alias]`
+/// entries over the builtin set. Falls back to builtin-only when the
+/// project file is missing or malformed — matching CLI parity.
+fn load_alias_catalog_for_ctx(ctx: &ProjectContext) -> AliasCatalog {
+    let path = ctx.root.schema_toml();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return AliasCatalog::builtin();
+    };
+    match load_alias_catalog(&text) {
+        Ok(SchemaLoad { catalog, .. }) => catalog,
+        Err(e) => {
+            tracing::warn!("schema.toml alias load failed, using builtin only: {e}");
+            AliasCatalog::builtin()
+        }
+    }
+}
+
 fn load_schema(ctx: &ProjectContext) -> Option<CustomFields> {
     let path = ctx.root.schema_toml();
     let text = std::fs::read_to_string(&path).ok()?;

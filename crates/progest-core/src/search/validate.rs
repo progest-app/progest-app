@@ -15,6 +15,8 @@ use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone
 use globset::{Glob, GlobMatcher};
 use serde::{Deserialize, Serialize};
 
+use crate::accepts::AliasCatalog;
+
 use super::ast::{Atom, Clause, Expr, Query, Value};
 
 // ----- Schema (custom fields) ----------------------------------------------
@@ -171,6 +173,18 @@ pub enum Warning {
     InvalidGlob { key: String, value: String },
     /// `created:` / `updated:` used twice in one query.
     DuplicateInstantClause { key: String },
+    /// `key::alias` referenced an alias not present in the loaded
+    /// catalog (builtin + `schema.toml` `[alias]`). Clause yields no
+    /// matches.
+    UnknownAlias { key: String, alias: String },
+    /// `key::alias` used on a key whose value space doesn't have
+    /// aliases (everything except `type:` for v1). Clause yields no
+    /// matches.
+    UnsupportedAlias { key: String, alias: String },
+    /// Comma-separated list contained an empty token, e.g.
+    /// `type:psd,` or `tag:,wip`. Empty tokens are skipped; this
+    /// surfaces the typo so users notice.
+    EmptyListItem { key: String },
 }
 
 impl fmt::Display for Warning {
@@ -192,6 +206,11 @@ impl fmt::Display for Warning {
             }
             Self::InvalidGlob { key, value } => write!(f, "invalid_glob:{key}={value}"),
             Self::DuplicateInstantClause { key } => write!(f, "duplicate_instant_clause:{key}"),
+            Self::UnknownAlias { key, alias } => write!(f, "unknown_alias:{key}=:{alias}"),
+            Self::UnsupportedAlias { key, alias } => {
+                write!(f, "unsupported_alias:{key}=:{alias}")
+            }
+            Self::EmptyListItem { key } => write!(f, "empty_list_item:{key}"),
         }
     }
 }
@@ -200,15 +219,36 @@ impl fmt::Display for Warning {
 
 /// Validate a parsed query against the schema.
 ///
+/// Convenience wrapper that uses the builtin alias catalog only —
+/// `type::alias` references will only resolve against builtin aliases
+/// (`psd-family`, `image`, etc.). Callers that have already loaded a
+/// project's `schema.toml` should use [`validate_with_catalog`]
+/// instead so project-defined aliases are honored.
+///
 /// The result always succeeds (validation emits warnings, never
 /// fails). Warnings are deduplicated in insertion order.
 pub fn validate(query: &Query, schema: &CustomFields) -> ValidatedQuery {
+    validate_with_catalog(query, schema, &AliasCatalog::builtin())
+}
+
+/// Validate against an explicit [`AliasCatalog`].
+///
+/// `aliases` is consulted for `type::name` references; missing alias
+/// names emit a [`Warning::UnknownAlias`] and contribute zero values
+/// to the resulting OR. `tag::`/`kind::`/custom-field `::name` keys
+/// emit [`Warning::UnsupportedAlias`] because v1 only supports
+/// extension aliases.
+pub fn validate_with_catalog(
+    query: &Query,
+    schema: &CustomFields,
+    aliases: &AliasCatalog,
+) -> ValidatedQuery {
     let mut ctx = Ctx {
         warnings: Vec::new(),
         type_clauses_in_and: 0,
         instant_keys_seen: BTreeMap::new(),
     };
-    let expr = ctx.validate_expr(&query.root, /* in_and: */ false, schema);
+    let expr = ctx.validate_expr(&query.root, /* in_and: */ false, schema, aliases);
     ValidatedQuery {
         expr,
         warnings: ctx.warnings,
@@ -232,7 +272,13 @@ impl Ctx {
         }
     }
 
-    fn validate_expr(&mut self, expr: &Expr, in_and: bool, schema: &CustomFields) -> ValidExpr {
+    fn validate_expr(
+        &mut self,
+        expr: &Expr,
+        in_and: bool,
+        schema: &CustomFields,
+        aliases: &AliasCatalog,
+    ) -> ValidExpr {
         // `instant_keys_seen` is global across the whole query (spec
         // §4.7: "1 query 1 created clause"). `type_clauses_in_and`
         // is per-AND group and resets on OR/AND boundaries.
@@ -242,7 +288,7 @@ impl Ctx {
                 let mut out = Vec::with_capacity(branches.len());
                 for b in branches {
                     self.type_clauses_in_and = 0;
-                    out.push(self.validate_expr(b, false, schema));
+                    out.push(self.validate_expr(b, false, schema, aliases));
                 }
                 self.type_clauses_in_and = saved_type;
                 ValidExpr::Or(out)
@@ -252,7 +298,7 @@ impl Ctx {
                 self.type_clauses_in_and = 0;
                 let mut out = Vec::with_capacity(branches.len());
                 for b in branches {
-                    out.push(self.validate_expr(b, true, schema));
+                    out.push(self.validate_expr(b, true, schema, aliases));
                 }
                 if self.type_clauses_in_and >= 2 {
                     self.warn(Warning::TypeAndMulti);
@@ -260,32 +306,149 @@ impl Ctx {
                 self.type_clauses_in_and = saved_type;
                 ValidExpr::And(out)
             }
-            Expr::Not(inner) => ValidExpr::Not(Box::new(self.validate_expr(inner, in_and, schema))),
-            Expr::Atom(atom) => ValidExpr::Atom(self.validate_atom(atom, in_and, schema)),
+            Expr::Not(inner) => {
+                ValidExpr::Not(Box::new(self.validate_expr(inner, in_and, schema, aliases)))
+            }
+            Expr::Atom(atom) => self.validate_atom(atom, in_and, schema, aliases),
         }
     }
 
-    fn validate_atom(&mut self, atom: &Atom, in_and: bool, schema: &CustomFields) -> ValidAtom {
+    fn validate_atom(
+        &mut self,
+        atom: &Atom,
+        in_and: bool,
+        schema: &CustomFields,
+        aliases: &AliasCatalog,
+    ) -> ValidExpr {
         match atom {
-            Atom::FreeBareword(s) => ValidAtom::FreeText(FreeTextTerm::Bareword(s.clone())),
-            Atom::FreePhrase(s) => ValidAtom::FreeText(FreeTextTerm::Phrase(s.clone())),
-            Atom::Clause(c) => self.validate_clause(c, in_and, schema),
+            Atom::FreeBareword(s) => {
+                ValidExpr::Atom(ValidAtom::FreeText(FreeTextTerm::Bareword(s.clone())))
+            }
+            Atom::FreePhrase(s) => {
+                ValidExpr::Atom(ValidAtom::FreeText(FreeTextTerm::Phrase(s.clone())))
+            }
+            Atom::Clause(c) => self.validate_clause(c, in_and, schema, aliases),
         }
     }
 
+    /// Walk a single `key:value` clause. Comma-separated lists +
+    /// `key::alias` references expand here; the result may be a
+    /// single atom (single-value clause), a synthetic `Or` of N
+    /// atoms (multi-value list, alias expansion), or `AlwaysFalse`
+    /// when expansion produced zero usable values.
     fn validate_clause(
         &mut self,
         clause: &Clause,
         in_and: bool,
         schema: &CustomFields,
-    ) -> ValidAtom {
+        aliases: &AliasCatalog,
+    ) -> ValidExpr {
         let key = clause.key.as_str();
-        if let Some(reserved) = self.validate_reserved(key, &clause.value, in_and) {
+        let is_reserved = matches!(
+            key,
+            "tag" | "type" | "kind" | "is" | "name" | "path" | "created" | "updated"
+        );
+        let is_custom = !is_reserved && schema.get(key).is_some();
+        if !is_reserved && !is_custom {
+            self.warn(Warning::UnknownKey { key: key.into() });
+            return ValidExpr::Atom(ValidAtom::AlwaysFalse(format!("unknown_key:{key}")));
+        }
+
+        // Increment the AND-context type counter once per Type clause,
+        // regardless of how many values the list ends up expanding to —
+        // the user wrote a single clause, the warning still fires only
+        // when `type:a type:b` are AND'd as separate clauses.
+        if key == "type" && in_and {
+            self.type_clauses_in_and = self.type_clauses_in_and.saturating_add(1);
+        }
+
+        let supports_list = matches!(key, "tag" | "type" | "kind") || is_custom;
+        if !supports_list || clause.value.is_quoted() {
+            // Single-value path: name/path/is/created/updated never
+            // accept lists (their value space is glob/range/enum and
+            // splitting on `,` would be ambiguous), and quoted values
+            // are always literal regardless of key.
+            return ValidExpr::Atom(self.validate_single_value(key, &clause.value, schema));
+        }
+
+        // List path: split on `,`, optionally expand `:alias` for `type:`.
+        let tokens = self.expand_list_tokens(key, clause.value.as_str(), aliases);
+        if tokens.is_empty() {
+            return ValidExpr::Atom(ValidAtom::AlwaysFalse(format!("empty_list:{key}")));
+        }
+        if tokens.len() == 1 {
+            let v = Value::Bareword(tokens.into_iter().next().unwrap());
+            return ValidExpr::Atom(self.validate_single_value(key, &v, schema));
+        }
+        let atoms: Vec<ValidExpr> = tokens
+            .into_iter()
+            .map(|tok| {
+                let v = Value::Bareword(tok);
+                ValidExpr::Atom(self.validate_single_value(key, &v, schema))
+            })
+            .collect();
+        ValidExpr::Or(atoms)
+    }
+
+    /// Resolve a list of tokens out of a comma-separated bareword
+    /// value, expanding `type::alias` references via the supplied
+    /// catalog. Empty / unsupported / unknown tokens emit warnings
+    /// and contribute zero output values.
+    fn expand_list_tokens(&mut self, key: &str, raw: &str, aliases: &AliasCatalog) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut had_empty = false;
+        for part in raw.split(',') {
+            if part.is_empty() {
+                had_empty = true;
+                continue;
+            }
+            if let Some(alias_name) = part.strip_prefix(':') {
+                if key == "type" {
+                    match aliases.lookup(alias_name) {
+                        Some(exts) => {
+                            for ext in exts {
+                                let s = ext.as_str();
+                                if !s.is_empty() {
+                                    out.push(s.to_string());
+                                }
+                            }
+                        }
+                        None => self.warn(Warning::UnknownAlias {
+                            key: key.into(),
+                            alias: alias_name.into(),
+                        }),
+                    }
+                } else {
+                    self.warn(Warning::UnsupportedAlias {
+                        key: key.into(),
+                        alias: alias_name.into(),
+                    });
+                }
+                continue;
+            }
+            out.push(part.to_string());
+        }
+        if had_empty {
+            self.warn(Warning::EmptyListItem { key: key.into() });
+        }
+        out
+    }
+
+    /// Validate a single token (post-split, post-alias-expansion)
+    /// for the given key. The type-counter increment that previously
+    /// lived inside `validate_reserved` has been hoisted out into
+    /// [`Self::validate_clause`] so list expansion doesn't double-count.
+    fn validate_single_value(
+        &mut self,
+        key: &str,
+        value: &Value,
+        schema: &CustomFields,
+    ) -> ValidAtom {
+        if let Some(reserved) = self.validate_reserved(key, value) {
             return reserved;
         }
-        // Not a reserved key — try custom field.
         match schema.get(key) {
-            Some(kind) => self.validate_custom(key, &clause.value, kind),
+            Some(kind) => self.validate_custom(key, value, kind),
             None => {
                 self.warn(Warning::UnknownKey { key: key.into() });
                 ValidAtom::AlwaysFalse(format!("unknown_key:{key}"))
@@ -293,16 +456,11 @@ impl Ctx {
         }
     }
 
-    fn validate_reserved(&mut self, key: &str, value: &Value, in_and: bool) -> Option<ValidAtom> {
+    fn validate_reserved(&mut self, key: &str, value: &Value) -> Option<ValidAtom> {
         let raw = value.as_str();
         let reserved = match key {
             "tag" => ReservedClause::Tag(raw.to_string()),
-            "type" => {
-                if in_and {
-                    self.type_clauses_in_and = self.type_clauses_in_and.saturating_add(1);
-                }
-                ReservedClause::Type(normalize_type(raw))
-            }
+            "type" => ReservedClause::Type(normalize_type(raw)),
             "kind" => match parse_kind(raw) {
                 Some(kv) => ReservedClause::Kind(kv),
                 None => {
@@ -827,5 +985,149 @@ mod tests {
             }
             other => panic!("expected Phrase, got {other:?}"),
         }
+    }
+
+    // ----- comma-list + alias expansion (DSL §4.10/§4.11) -----
+
+    fn types_in_or(expr: &ValidExpr) -> Vec<String> {
+        let ValidExpr::Or(branches) = expr else {
+            panic!("expected Or, got {expr:?}");
+        };
+        branches
+            .iter()
+            .map(|b| match b {
+                ValidExpr::Atom(ValidAtom::Reserved(ReservedClause::Type(t))) => t.clone(),
+                other => panic!("expected Type atom, got {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn type_comma_list_expands_to_or() {
+        let v = validated("type:png,jpg", &schema_empty());
+        assert!(v.warnings.is_empty(), "{:?}", v.warnings);
+        assert_eq!(types_in_or(&v.expr), vec!["png", "jpg"]);
+    }
+
+    #[test]
+    fn tag_comma_list_expands_to_or() {
+        let v = validated("tag:wip,review", &schema_empty());
+        assert!(v.warnings.is_empty(), "{:?}", v.warnings);
+        match &v.expr {
+            ValidExpr::Or(branches) => {
+                let tags: Vec<&str> = branches
+                    .iter()
+                    .map(|b| match b {
+                        ValidExpr::Atom(ValidAtom::Reserved(ReservedClause::Tag(t))) => t.as_str(),
+                        other => panic!("expected Tag, got {other:?}"),
+                    })
+                    .collect();
+                assert_eq!(tags, vec!["wip", "review"]);
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_alias_expands_to_builtin_set() {
+        // `image` is a builtin alias whose member set includes png /
+        // jpg / psd / etc. The validator pulls every member into an
+        // Or of Type atoms.
+        let v = validated("type::image", &schema_empty());
+        assert!(v.warnings.is_empty(), "{:?}", v.warnings);
+        let exts = types_in_or(&v.expr);
+        assert!(exts.contains(&"psd".to_string()), "got {exts:?}");
+    }
+
+    #[test]
+    fn type_alias_combined_with_literal_in_list() {
+        let v = validated("type::image,jpg", &schema_empty());
+        assert!(v.warnings.is_empty(), "{:?}", v.warnings);
+        let exts = types_in_or(&v.expr);
+        assert!(exts.contains(&"psd".to_string()));
+        assert!(exts.contains(&"jpg".to_string()));
+    }
+
+    #[test]
+    fn unknown_alias_warns_and_yields_empty_list() {
+        let v = validated("type::nonexistent-alias", &schema_empty());
+        assert!(
+            v.warnings
+                .iter()
+                .any(|w| matches!(w, Warning::UnknownAlias { .. })),
+            "{:?}",
+            v.warnings,
+        );
+        // Whole clause collapses to AlwaysFalse since 0 tokens remain.
+        assert!(matches!(v.expr, ValidExpr::Atom(ValidAtom::AlwaysFalse(_))));
+    }
+
+    #[test]
+    fn alias_on_non_type_key_warns_unsupported() {
+        let v = validated("tag::group", &schema_empty());
+        assert!(
+            v.warnings
+                .iter()
+                .any(|w| matches!(w, Warning::UnsupportedAlias { .. })),
+            "{:?}",
+            v.warnings,
+        );
+        assert!(matches!(v.expr, ValidExpr::Atom(ValidAtom::AlwaysFalse(_))));
+    }
+
+    #[test]
+    fn empty_list_item_warns() {
+        let v = validated("type:psd,,jpg", &schema_empty());
+        assert!(
+            v.warnings
+                .iter()
+                .any(|w| matches!(w, Warning::EmptyListItem { .. })),
+            "{:?}",
+            v.warnings,
+        );
+        // Empty middle entry skipped, surviving Or has psd + jpg.
+        let exts = types_in_or(&v.expr);
+        assert_eq!(exts, vec!["psd", "jpg"]);
+    }
+
+    #[test]
+    fn quoted_value_does_not_split_on_comma() {
+        // Quoted = literal, so `tag:"a,b"` looks for a tag named
+        // exactly `a,b` (legitimate edge case) instead of expanding.
+        let v = validated(r#"tag:"a,b""#, &schema_empty());
+        assert!(v.warnings.is_empty(), "{:?}", v.warnings);
+        match &v.expr {
+            ValidExpr::Atom(ValidAtom::Reserved(ReservedClause::Tag(t))) => {
+                assert_eq!(t, "a,b");
+            }
+            other => panic!("expected single Tag, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn custom_int_list_expands_to_or() {
+        let v = validated("scene:10,20", &schema_with_scene_int());
+        assert!(v.warnings.is_empty(), "{:?}", v.warnings);
+        match &v.expr {
+            ValidExpr::Or(branches) => {
+                assert_eq!(branches.len(), 2);
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_list_in_and_counts_as_one_clause_for_type_and_multi_warning() {
+        // The user wrote ONE list clause; the AND-multi warning is
+        // about *separate* `type:` clauses on either side of an AND.
+        // `type:psd,tif` on its own should NOT trip the warning.
+        let v = validated("tag:wip type:psd,tif", &schema_empty());
+        assert!(
+            !v.warnings
+                .iter()
+                .any(|w| matches!(w, Warning::TypeAndMulti)),
+            "type:psd,tif must not trip type-and-multi: {:?}",
+            v.warnings,
+        );
     }
 }

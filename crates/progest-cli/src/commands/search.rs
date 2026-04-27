@@ -15,12 +15,12 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use progest_core::search::{
     CustomFieldKind, CustomFields, RichSearchHit, ValidatedQuery, execute, parse, plan,
-    project_hits, validate,
+    project_hits, validate_with_catalog,
     views::{ViewError, load as load_views_doc},
 };
 use serde::Serialize;
 
-use crate::context::{discover_root, open_index};
+use crate::context::{discover_root, load_alias_catalog_from_root, open_index};
 use crate::output::{OutputFormat, emit_json};
 
 pub struct SearchArgs {
@@ -63,7 +63,8 @@ pub fn run(cwd: &Path, args: &SearchArgs) -> Result<i32> {
         }
     };
     let schema = load_schema(&root).unwrap_or_default();
-    let validated = validate(&parsed, &schema);
+    let aliases = load_alias_catalog_from_root(&root).unwrap_or_default();
+    let validated = validate_with_catalog(&parsed, &schema, &aliases);
     let planned = plan(&validated);
 
     // Execute against the index.

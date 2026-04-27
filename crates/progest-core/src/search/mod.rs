@@ -27,4 +27,5 @@ pub use plan::{BindValue, PlannedQuery, plan};
 pub use validate::{
     CustomClause, CustomFieldKind, CustomFields, CustomMatcher, FreeTextTerm, InstantRange,
     IsValue, KindValue, ReservedClause, ValidAtom, ValidExpr, ValidatedQuery, Warning, validate,
+    validate_with_catalog,
 };

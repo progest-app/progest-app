@@ -99,6 +99,9 @@ fn warning_kind(w: &Warning) -> &'static str {
         Warning::InvalidDatetime { .. } => "invalid_datetime",
         Warning::InvalidGlob { .. } => "invalid_glob",
         Warning::DuplicateInstantClause { .. } => "duplicate_instant_clause",
+        Warning::UnknownAlias { .. } => "unknown_alias",
+        Warning::UnsupportedAlias { .. } => "unsupported_alias",
+        Warning::EmptyListItem { .. } => "empty_list_item",
     }
 }
 
