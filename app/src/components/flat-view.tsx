@@ -215,11 +215,7 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
             </button>
           ) : null}
         </div>
-        <ViewSelect
-          views={views}
-          active={activeViewId}
-          onSelect={onSelectView}
-        />
+        <ViewSelect views={views} active={activeViewId} onSelect={onSelectView} />
         <DisplayToggle value={display} onChange={setDisplay} />
         <div className="ml-auto flex items-center gap-1">
           {activeViewId ? (
@@ -382,7 +378,10 @@ function HitGrid(props: {
 }) {
   if (props.hits.length === 0) return <Empty>No results.</Empty>;
   return (
-    <div className="grid gap-2 p-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
+    <div
+      className="grid gap-2 p-3"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
+    >
       {props.hits.map((hit) => (
         <button
           key={hit.file_id}
@@ -465,8 +464,7 @@ function SaveAsDialog(props: {
         <DialogHeader>
           <DialogTitle>Save view</DialogTitle>
           <DialogDescription>
-            Persist the current query + display mode to{" "}
-            <code>.progest/views.toml</code>.
+            Persist the current query + display mode to <code>.progest/views.toml</code>.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 text-xs">
@@ -479,14 +477,10 @@ function SaveAsDialog(props: {
               autoFocus
             />
             {!idValid ? (
-              <span className="text-destructive">
-                id must match [a-z0-9_-]{`{1,64}`}
-              </span>
+              <span className="text-destructive">id must match [a-z0-9_-]{`{1,64}`}</span>
             ) : null}
             {idValid && conflictId ? (
-              <span className="text-warning">
-                will replace existing view {id}
-              </span>
+              <span className="text-warning">will replace existing view {id}</span>
             ) : null}
           </Field>
           <Field label="name">

@@ -17,9 +17,7 @@ export function ResultDetailDialog(props: {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle className="font-mono text-sm break-all">
-            {hit?.path ?? ""}
-          </DialogTitle>
+          <DialogTitle className="font-mono text-sm break-all">{hit?.path ?? ""}</DialogTitle>
           <DialogDescription>{hit?.kind ?? ""}</DialogDescription>
         </DialogHeader>
         {hit ? <Detail hit={hit} /> : null}
@@ -47,9 +45,7 @@ function Detail({ hit }: { hit: RichSearchHit }) {
               <li key={f.key} className="font-mono">
                 <span className="text-muted-foreground">{f.key}</span>:{" "}
                 <span>{String(f.value)}</span>
-                <span className="ml-1 text-[0.625rem] text-muted-foreground">
-                  ({f.type})
-                </span>
+                <span className="ml-1 text-[0.625rem] text-muted-foreground">({f.type})</span>
               </li>
             ))}
           </ul>

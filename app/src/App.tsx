@@ -47,10 +47,7 @@ function Shell() {
   return (
     <>
       {project ? (
-        <MainShell
-          onPickHit={(h) => setHitDetail(h)}
-          onPickTreeFile={(e) => setTreeDetail(e)}
-        />
+        <MainShell onPickHit={(h) => setHitDetail(h)} onPickTreeFile={(e) => setTreeDetail(e)} />
       ) : (
         <Welcome />
       )}
@@ -167,10 +164,7 @@ function Welcome() {
   );
 }
 
-function TreeFileDetail(props: {
-  entry: DirEntry | null;
-  onOpenChange: (open: boolean) => void;
-}) {
+function TreeFileDetail(props: { entry: DirEntry | null; onOpenChange: (open: boolean) => void }) {
   // The tree node carries the same FileEntry shape the flat view does,
   // but without the file_id-keyed `path` field. We synthesize a
   // RichSearchHit-shaped payload so ResultDetailDialog can render it.
@@ -188,13 +182,7 @@ function TreeFileDetail(props: {
       custom_fields: entry.file.custom_fields,
     };
   }, [props.entry]);
-  return (
-    <ResultDetailDialog
-      hit={hit}
-      open={hit !== null}
-      onOpenChange={props.onOpenChange}
-    />
-  );
+  return <ResultDetailDialog hit={hit} open={hit !== null} onOpenChange={props.onOpenChange} />;
 }
 
 function relTime(rfc3339: string): string {

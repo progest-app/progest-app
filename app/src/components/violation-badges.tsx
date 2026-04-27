@@ -1,11 +1,7 @@
 import * as React from "react";
 import { Triangle, Hash } from "lucide-react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { RichViolationCounts } from "@/lib/ipc";
 
 /**
@@ -66,13 +62,7 @@ export function ViolationBadges({
  * above linear and avoids spinning up a Tooltip portal for every
  * row in dense lists where no tooltip is configured.
  */
-function Badge({
-  tooltip,
-  children,
-}: {
-  tooltip: string | undefined;
-  children: React.ReactNode;
-}) {
+function Badge({ tooltip, children }: { tooltip: string | undefined; children: React.ReactNode }) {
   if (!tooltip) return <>{children}</>;
   return (
     <Tooltip>
@@ -93,15 +83,9 @@ export function ViolationDots({ counts }: { counts: RichViolationCounts }) {
   if (total === 0) return null;
   return (
     <span className="ml-1 flex items-center gap-0.5">
-      {counts.naming > 0 ? (
-        <span className="size-1.5 rounded-full bg-badge-naming" />
-      ) : null}
-      {counts.placement > 0 ? (
-        <span className="size-1.5 rounded-full bg-badge-placement" />
-      ) : null}
-      {counts.sequence > 0 ? (
-        <span className="size-1.5 rounded-full bg-badge-sequence" />
-      ) : null}
+      {counts.naming > 0 ? <span className="size-1.5 rounded-full bg-badge-naming" /> : null}
+      {counts.placement > 0 ? <span className="size-1.5 rounded-full bg-badge-placement" /> : null}
+      {counts.sequence > 0 ? <span className="size-1.5 rounded-full bg-badge-sequence" /> : null}
     </span>
   );
 }

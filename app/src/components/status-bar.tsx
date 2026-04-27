@@ -58,10 +58,7 @@ export function StatusBar() {
       {/* Project info shrinks (min-w-0 + truncate) so a long root
           doesn't push the active-view chip off the right edge. */}
       {project ? (
-        <span
-          className="flex min-w-0 shrink items-center gap-1 truncate"
-          title={project.root}
-        >
+        <span className="flex min-w-0 shrink items-center gap-1 truncate" title={project.root}>
           <Folder className="size-3 shrink-0" />
           <span className="truncate font-medium text-foreground">{project.name}</span>
           <span className="hidden truncate sm:inline">— {project.root}</span>

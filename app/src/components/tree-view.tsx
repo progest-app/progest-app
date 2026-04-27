@@ -21,25 +21,22 @@ export function TreeView(props: { onPickFile?: (entry: DirEntry) => void }) {
   const [cache, setCache] = React.useState<Record<string, DirState>>({});
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set([""]));
 
-  const fetchDir = React.useCallback(
-    async (path: string) => {
+  const fetchDir = React.useCallback(async (path: string) => {
+    setCache((c) => ({
+      ...c,
+      [path]: { state: "loading", children: c[path]?.children ?? [] },
+    }));
+    try {
+      const list = await filesListDir(path);
+      setCache((c) => ({ ...c, [path]: { state: "loaded", children: list } }));
+    } catch (e) {
+      const msg = e instanceof IpcError ? e.raw : String(e);
       setCache((c) => ({
         ...c,
-        [path]: { state: "loading", children: c[path]?.children ?? [] },
+        [path]: { state: "error", children: [], error: msg },
       }));
-      try {
-        const list = await filesListDir(path);
-        setCache((c) => ({ ...c, [path]: { state: "loaded", children: list } }));
-      } catch (e) {
-        const msg = e instanceof IpcError ? e.raw : String(e);
-        setCache((c) => ({
-          ...c,
-          [path]: { state: "error", children: [], error: msg },
-        }));
-      }
-    },
-    [],
-  );
+    }
+  }, []);
 
   // Reset cache + expanded set when the attached project changes,
   // then refetch the new root. Without this, the tree would keep
@@ -118,10 +115,7 @@ function DirNode(props: {
       {isOpen ? (
         <div>
           {entry?.state === "loading" && (
-            <div
-              className="px-1 py-0.5 text-muted-foreground"
-              style={{ paddingLeft: indent + 24 }}
-            >
+            <div className="px-1 py-0.5 text-muted-foreground" style={{ paddingLeft: indent + 24 }}>
               loading…
             </div>
           )}
@@ -148,12 +142,7 @@ function DirNode(props: {
                   onPickFile={onPickFile}
                 />
               ) : (
-                <FileNode
-                  key={child.path}
-                  entry={child}
-                  depth={depth + 1}
-                  onPick={onPickFile}
-                />
+                <FileNode key={child.path} entry={child} depth={depth + 1} onPick={onPickFile} />
               ),
             )}
         </div>
