@@ -13,6 +13,7 @@ import {
   type View,
   type ViewDisplay,
 } from "@/lib/ipc";
+import { useProject } from "@/lib/project-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,6 +29,7 @@ import { ViolationBadges } from "@/components/violation-badges";
 const DEBOUNCE_MS = 200;
 
 export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
+  const { project } = useProject();
   const [query, setQuery] = React.useState("");
   const [display, setDisplay] = React.useState<ViewDisplay>("list");
   const [response, setResponse] = React.useState<SearchResponse | null>(null);
@@ -45,9 +47,19 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
     }
   }, []);
 
+  // Reset all per-project state when the attached project changes.
+  // Without this, switching projects via the picker / recent list
+  // would leave the old query, response, saved-views list, and
+  // active-view selection in place — the panel would look stale
+  // until the user typed something.
   React.useEffect(() => {
+    setQuery("");
+    setResponse(null);
+    setError(null);
+    setActiveViewId(null);
+    setDisplay("list");
     void refreshViews();
-  }, [refreshViews]);
+  }, [project?.root, refreshViews]);
 
   // Debounced search whenever query changes. Empty query falls
   // through to `files_list_all` so the panel always shows *something*
@@ -102,7 +114,11 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [query]);
+    // `project?.root` is in the deps so a project switch retriggers
+    // the empty-query files_list_all (or the saved view's loaded
+    // query) against the new index even when the query string itself
+    // is identical between projects.
+  }, [query, project?.root]);
 
   const onSelectView = (id: string) => {
     if (id === "") {

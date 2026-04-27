@@ -2,6 +2,7 @@ import * as React from "react";
 import { ChevronRight, ChevronDown, Folder, FolderOpen, FileIcon } from "lucide-react";
 
 import { filesListDir, IpcError, type DirEntry, type FileEntry } from "@/lib/ipc";
+import { useProject } from "@/lib/project-context";
 
 import { ViolationDots } from "@/components/violation-badges";
 
@@ -14,6 +15,7 @@ type DirState = {
 };
 
 export function TreeView(props: { onPickFile?: (entry: DirEntry) => void }) {
+  const { project } = useProject();
   // path "" = root; cache keeps loaded children + error per path so
   // collapsing/re-expanding doesn't re-fetch.
   const [cache, setCache] = React.useState<Record<string, DirState>>({});
@@ -39,10 +41,15 @@ export function TreeView(props: { onPickFile?: (entry: DirEntry) => void }) {
     [],
   );
 
-  // Load root immediately so the tree isn't empty on first mount.
+  // Reset cache + expanded set when the attached project changes,
+  // then refetch the new root. Without this, the tree would keep
+  // showing the old project's directory snapshot until the user
+  // collapsed and re-expanded each branch.
   React.useEffect(() => {
+    setCache({});
+    setExpanded(new Set([""]));
     void fetchDir("");
-  }, [fetchDir]);
+  }, [project?.root, fetchDir]);
 
   const toggle = React.useCallback(
     async (path: string) => {
