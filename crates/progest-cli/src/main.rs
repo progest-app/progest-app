@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use commands::clean::{CaseFlag, CleanArgs, FillFlag};
 use commands::lint::LintArgs;
@@ -195,6 +195,21 @@ enum TagOp {
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ViewDisplayArg {
+    List,
+    Grid,
+}
+
+impl ViewDisplayArg {
+    fn into_core(self) -> progest_core::search::views::ViewDisplay {
+        match self {
+            Self::List => progest_core::search::views::ViewDisplay::List,
+            Self::Grid => progest_core::search::views::ViewDisplay::Grid,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum ViewOp {
     /// Save (or replace) a view by id.
@@ -208,6 +223,10 @@ enum ViewOp {
         description: Option<String>,
         #[arg(long)]
         group_by: Option<String>,
+        /// Display mode hint persisted with the view (flat view).
+        /// Defaults to `list`.
+        #[arg(long, value_enum)]
+        display: Option<ViewDisplayArg>,
         #[arg(long, default_value = "text", value_enum)]
         format: OutputFormat,
     },
@@ -359,6 +378,7 @@ fn main() -> Result<ExitCode> {
                     name,
                     description,
                     group_by,
+                    display,
                     format,
                 } => (
                     ViewCommand::Save {
@@ -367,6 +387,7 @@ fn main() -> Result<ExitCode> {
                         query,
                         description,
                         group_by,
+                        display: display.map(ViewDisplayArg::into_core),
                     },
                     format,
                 ),

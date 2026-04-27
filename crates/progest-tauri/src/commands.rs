@@ -20,12 +20,19 @@ use std::collections::BTreeMap;
 
 use chrono::Utc;
 use progest_core::fs::ProjectPath;
+use progest_core::fs::ignore::IgnoreRules;
+use progest_core::index::Index;
 use progest_core::search::history::{
     HistoryDocument, HistoryEntry, HistoryError, append as history_append, clear as history_clear,
     load as load_history, save as save_history,
 };
+use progest_core::search::views::{
+    View, ViewError, ViewsDocument, delete as delete_view, load as load_views_doc,
+    save as save_views_doc, upsert as upsert_view,
+};
 use progest_core::search::{
-    CustomFieldKind, CustomFields, RichSearchHit, execute, parse, plan, project_hits, validate,
+    CustomFieldKind, CustomFields, RichCustomField, RichSearchHit, RichViolationCounts, execute,
+    parse, plan, project_hits, validate,
 };
 use serde::Serialize;
 use tauri::State;
@@ -36,6 +43,7 @@ use progest_core::project::ProjectRoot;
 use std::path::PathBuf;
 
 const SEARCH_HISTORY_PATH: &str = ".progest/local/search-history.json";
+const VIEWS_TOML_PATH: &str = ".progest/views.toml";
 
 /// Top-level boot snapshot — currently just the attached project.
 #[derive(Debug, Clone, Serialize)]
@@ -228,6 +236,253 @@ pub fn search_history_clear(state: State<'_, AppState>) -> Result<(), String> {
     history_clear(&mut doc);
     save_history(&ctx.fs, &path, &doc).map_err(|e| format!("save history: {e}"))?;
     Ok(())
+}
+
+// -------------------------------------------------------------- saved views
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn view_list(state: State<'_, AppState>) -> Result<Vec<View>, String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+    let path = ProjectPath::new(VIEWS_TOML_PATH).map_err(|e| format!("path: {e}"))?;
+    match load_views_doc(&ctx.fs, &path) {
+        Ok(doc) => Ok(doc.views),
+        Err(ViewError::NotFound) => Ok(Vec::new()),
+        Err(e) => Err(format!("load views: {e}")),
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn view_save(view: View, state: State<'_, AppState>) -> Result<(), String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+    let path = ProjectPath::new(VIEWS_TOML_PATH).map_err(|e| format!("path: {e}"))?;
+    let mut doc = match load_views_doc(&ctx.fs, &path) {
+        Ok(d) => d,
+        Err(ViewError::NotFound) => ViewsDocument::default(),
+        Err(e) => return Err(format!("load views: {e}")),
+    };
+    upsert_view(&mut doc, view).map_err(|e| format!("upsert view: {e}"))?;
+    save_views_doc(&ctx.fs, &path, &doc).map_err(|e| format!("save views: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn view_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+    let path = ProjectPath::new(VIEWS_TOML_PATH).map_err(|e| format!("path: {e}"))?;
+    let mut doc = match load_views_doc(&ctx.fs, &path) {
+        Ok(d) => d,
+        Err(ViewError::NotFound) => return Err(format!("view {id:?} not found")),
+        Err(e) => return Err(format!("load views: {e}")),
+    };
+    delete_view(&mut doc, &id).map_err(|e| format!("delete view: {e}"))?;
+    save_views_doc(&ctx.fs, &path, &doc).map_err(|e| format!("save views: {e}"))?;
+    Ok(())
+}
+
+// ----------------------------------------------------------------- tree view
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DirEntryKind {
+    Dir,
+    File,
+}
+
+/// One immediate child of a directory, returned by `files_list_dir`.
+/// `file` is populated only when `kind == File`; tree-view UIs render
+/// the `Dir` rows as expandable nodes and the `File` rows with the
+/// usual violation / tag chips.
+#[derive(Debug, Clone, Serialize)]
+pub struct DirEntryWire {
+    pub name: String,
+    pub path: String,
+    pub kind: DirEntryKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<FileEntryWire>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FileEntryWire {
+    pub file_id: Option<String>,
+    pub kind: String,
+    pub ext: Option<String>,
+    pub tags: Vec<String>,
+    pub violations: RichViolationCounts,
+    pub custom_fields: Vec<RichCustomField>,
+}
+
+/// List the immediate children of `path` (project-relative; "" or "."
+/// = root). Directories come first, then files; each list is sorted
+/// case-insensitively for stable UI ordering. Hidden files (`.foo`)
+/// and ignore-rule matches are filtered out so the tree never
+/// surfaces editor scratch / DCC autosave noise.
+///
+/// Files are enriched from the index (`tags`, `violations`,
+/// `custom_fields`, `kind`, `ext`); files that haven't been
+/// reconciled yet still appear with their basename so the tree
+/// reflects on-disk truth, not just the index.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn files_list_dir(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<DirEntryWire>, String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+    // Normalize the request path. "" / "." both mean "project root".
+    let rel = path.trim_matches('/');
+    let rel = if rel == "." { "" } else { rel };
+    let abs = if rel.is_empty() {
+        ctx.root.root().to_path_buf()
+    } else {
+        ctx.root.root().join(rel)
+    };
+
+    // Defense against escape attempts via "..": the canonicalized
+    // request path must remain inside the project root.
+    let canonical_root =
+        std::fs::canonicalize(ctx.root.root()).map_err(|e| format!("canonicalize root: {e}"))?;
+    let canonical_abs =
+        std::fs::canonicalize(&abs).map_err(|e| format!("canonicalize `{rel}`: {e}"))?;
+    if !canonical_abs.starts_with(&canonical_root) {
+        return Err(format!("path `{rel}` escapes project root"));
+    }
+
+    let ignore = IgnoreRules::load(&ctx.fs).map_err(|e| format!("load ignore rules: {e}"))?;
+
+    let read = std::fs::read_dir(&canonical_abs)
+        .map_err(|e| format!("read_dir `{}`: {e}", canonical_abs.display()))?;
+    let mut entries: Vec<DirEntryWire> = Vec::new();
+    for r in read {
+        let dirent = match r {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("read_dir entry error in `{}`: {e}", canonical_abs.display());
+                continue;
+            }
+        };
+        if let Some(entry) = build_dir_entry(ctx, &ignore, rel, &dirent)? {
+            entries.push(entry);
+        }
+    }
+
+    // Dirs first, then files; case-insensitive name sort within each
+    // group. Stable ordering keeps the tree from re-shuffling on every
+    // refresh.
+    entries.sort_by(|a, b| {
+        let dir_first = match (&a.kind, &b.kind) {
+            (DirEntryKind::Dir, DirEntryKind::File) => std::cmp::Ordering::Less,
+            (DirEntryKind::File, DirEntryKind::Dir) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        };
+        if dir_first != std::cmp::Ordering::Equal {
+            return dir_first;
+        }
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(entries)
+}
+
+/// Build one [`DirEntryWire`] from a `read_dir` entry, applying the
+/// ignore filter and (for files) enriching from the index. Returns
+/// `Ok(None)` when the entry should be hidden.
+fn build_dir_entry(
+    ctx: &ProjectContext,
+    ignore: &IgnoreRules,
+    rel: &str,
+    dirent: &std::fs::DirEntry,
+) -> Result<Option<DirEntryWire>, String> {
+    let name = dirent.file_name().to_string_lossy().to_string();
+    // The progest dot dir itself is project plumbing — never list it.
+    if rel.is_empty() && name == ".progest" {
+        return Ok(None);
+    }
+    // Hide dot files / dirs by convention; ignore rules cover most
+    // already (`.git/`, `.DS_Store`) but bare dotfiles in user
+    // projects (`.tmp.swp`) shouldn't surface either.
+    if name.starts_with('.') {
+        return Ok(None);
+    }
+    let entry_rel = if rel.is_empty() {
+        name.clone()
+    } else {
+        format!("{rel}/{name}")
+    };
+    let is_dir = dirent.file_type().is_ok_and(|t| t.is_dir());
+    let project_path =
+        ProjectPath::new(&entry_rel).map_err(|e| format!("project path `{entry_rel}`: {e}"))?;
+    if ignore.is_ignored(&project_path, is_dir) {
+        return Ok(None);
+    }
+    if is_dir {
+        return Ok(Some(DirEntryWire {
+            name,
+            path: entry_rel,
+            kind: DirEntryKind::Dir,
+            file: None,
+        }));
+    }
+    let row = ctx
+        .index
+        .get_file_by_path(&project_path)
+        .map_err(|e| format!("index lookup `{entry_rel}`: {e}"))?;
+    let file_payload = if let Some(row) = row {
+        let file_id = row.file_id;
+        let rich = ctx
+            .index
+            .rich_rows(std::slice::from_ref(&file_id))
+            .map_err(|e| format!("rich row `{entry_rel}`: {e}"))?
+            .into_iter()
+            .next();
+        match rich {
+            Some(r) => FileEntryWire {
+                file_id: Some(r.file_id),
+                kind: r.kind,
+                ext: r.ext,
+                tags: r.tags,
+                violations: r.violations.into(),
+                custom_fields: r.custom_fields.into_iter().map(Into::into).collect(),
+            },
+            None => default_file_entry_for_unknown(kind_label(row.kind)),
+        }
+    } else {
+        default_file_entry_for_unknown("asset")
+    };
+    Ok(Some(DirEntryWire {
+        name,
+        path: entry_rel,
+        kind: DirEntryKind::File,
+        file: Some(file_payload),
+    }))
+}
+
+fn kind_label(kind: progest_core::meta::Kind) -> &'static str {
+    match kind {
+        progest_core::meta::Kind::Asset => "asset",
+        progest_core::meta::Kind::Directory => "directory",
+        progest_core::meta::Kind::Derived => "derived",
+    }
+}
+
+fn default_file_entry_for_unknown(kind: &str) -> FileEntryWire {
+    FileEntryWire {
+        file_id: None,
+        kind: kind.to_string(),
+        ext: None,
+        tags: Vec::new(),
+        violations: RichViolationCounts::default(),
+        custom_fields: Vec::new(),
+    }
 }
 
 fn record_history(ctx: &ProjectContext, query: &str) -> Result<(), String> {

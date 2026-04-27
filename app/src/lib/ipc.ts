@@ -59,6 +59,36 @@ export type RecentProject = {
   last_opened: string; // RFC3339
 };
 
+export type ViewDisplay = "list" | "grid";
+
+export type View = {
+  id: string;
+  name: string;
+  query: string;
+  description?: string | null;
+  group_by?: string | null;
+  sort?: string | null;
+  display: ViewDisplay;
+};
+
+export type DirEntryKind = "dir" | "file";
+
+export type FileEntry = {
+  file_id: string | null;
+  kind: string;
+  ext: string | null;
+  tags: string[];
+  violations: RichViolationCounts;
+  custom_fields: RichCustomField[];
+};
+
+export type DirEntry = {
+  name: string;
+  path: string;
+  kind: DirEntryKind;
+  file?: FileEntry;
+};
+
 // IPC errors are plain strings on the JS side. The backend prefixes the
 // no-project case with the discriminator `no_project:`; surface that as
 // a typed flag so callers can branch without string-matching elsewhere.
@@ -130,6 +160,38 @@ export async function projectRecentList(): Promise<RecentProject[]> {
 export async function projectRecentClear(): Promise<void> {
   try {
     await invoke<void>("project_recent_clear");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function viewList(): Promise<View[]> {
+  try {
+    return await invoke<View[]>("view_list");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function viewSave(view: View): Promise<void> {
+  try {
+    await invoke<void>("view_save", { view });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function viewDelete(id: string): Promise<void> {
+  try {
+    await invoke<void>("view_delete", { id });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function filesListDir(path: string): Promise<DirEntry[]> {
+  try {
+    return await invoke<DirEntry[]>("files_list_dir", { path });
   } catch (e) {
     throw toIpcError(e);
   }
