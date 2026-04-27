@@ -10,7 +10,7 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-26（M3 #6 landed: shadcn/ui 初期化 + Tailwind v4 配線 + Button/Dialog/Command コンポーネント追加）
+最終更新: 2026-04-27（M3 #7 landed: コマンドパレット UI + Tauri search IPC + `core::search::history`）
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
@@ -45,8 +45,9 @@
   - [x] `core::search::execute` + `core::index` migration 0002 — `files` に `name`/`ext`/`notes`/`updated_at`/`is_orphan` 列追加 + `custom_fields` / `violations` テーブル + `files_fts` FTS5 virtual table（trigram、INSERT/UPDATE/DELETE トリガ）。`SearchHit { file_id, path }` 型、planner SQL を outer SELECT で wrap して path 投影、`is:violation`/`is:misplaced` は violations EXISTS、`is:duplicate` は fingerprint self-join、`is:orphan` は flag。22 executor integration test、planner+executor 合算 102 search test pass（feat/m3-search-executor）
   - [x] CLI `progest search` / `progest tag` / `progest view` + reconcile/lint hooks — `Index` trait 拡張（`set_search_projection` / `replace_violations` / `set_custom_field` / `rich_rows`）、reconcile が search projection columns を populate、lint が visited file_id 単位で violations を replace、`core::tag` (add/remove/list + 検証) / `core::search::views` (loader+saver+upsert+delete) / `RichSearchHit` + `project_hits` 新設、CLI 3 subcommand 全実装、8 CLI smoke test（feat/m3-cli-search-tag-view）
   - [x] shadcn/ui 初期化 — `app/` で Tailwind v4 (`tailwindcss` + `@tailwindcss/vite`) 導入、`@/*` import alias を tsconfig + vite.config に配線、`pnpm dlx shadcn@latest init --preset b1D0dy4m --template vite --pointer -c app` で `components.json` (style=`radix-mira`、iconLibrary=`lucide`、baseColor=`neutral`)、`@theme inline` ブロック / Geist Mono / `tw-animate-css` を含む `src/index.css` を生成。`Button` / `Dialog` / `Command`（+ `Input` / `Textarea` / `InputGroup`）を `src/components/ui/` に追加、`@/lib/utils` を新設。typecheck + build green、`mise run check` green（feat/m3-shadcn-init）
-  - [ ] コマンドパレット + tree/flat view + ディレクトリインスペクター + placement バッジ
-  - [ ] Tauri IPC: search.execute / search.history / view.{list,save,delete} / accepts.{read,write}
+  - [x] コマンドパレット UI + Tauri search IPC — `core::search::history`（`.progest/local/search-history.json`、retention 100、append dedup + Utc::now、10 unit test）+ Tauri commands `app_info` / `search_execute` / `search_history_list` / `search_history_clear`（`tauri::State<AppState>` で `SqliteIndex` を保持、`PROGEST_PROJECT` env / CWD walk で起動時 attach、parse error は `SearchResponse.parse_error` フィールドで構造化、warnings + tagged custom_fields も同 envelope）+ 起動時の no-project empty state。`app/` 側は `@/lib/ipc.ts`（typed wrappers + `IpcError.isNoProject`）/ `command-palette.tsx`（Cmd+K toggle、空入力で recent history、200ms debounce 検索、placement/sequence/naming バッジ、status row）/ `result-detail-dialog.tsx`（クリックで全フィールド表示）。`mise run check` green、`pnpm build` green。tree/flat view と保存済みビュー UI は M3 #8 で別 PR（feat/m3-command-palette）
+  - [ ] tree view + flat view + `views.toml` ローダ/セーバ + `view.{list,save,delete}` IPC
+  - [ ] ディレクトリインスペクター + placement バッジ + `accepts.{read,write}` IPC
 - **M4 サムネ + 外部連携 + AI + テンプレート**: M3 後着手。`core::import`（accepts ランキング + rename preview の一体適用、history `Operation::Import`）/ `core::thumbnail` / `core::template` / `core::ai`。M4 import kickoff 向け sequence 統合設計メモは [`docs/M2_HANDOFF.md §5`](./M2_HANDOFF.md)
 
 後続 PR に切り出した既完了モジュールの残タスク:
