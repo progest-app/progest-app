@@ -18,6 +18,10 @@ pre-commit:
       glob: "*.rs"
       run: cargo fmt --all -- --check
       fail_text: "Rust sources are not formatted. Run `mise run fmt` and re-stage."
+    oxfmt:
+      glob: "app/**/*.{ts,tsx,js,jsx,json,css,md,html}"
+      run: pnpm --filter @progest/app exec vp fmt --check
+      fail_text: "Frontend sources are not formatted. Run `mise run fmt` and re-stage."
 
 commit-msg:
   commands:
