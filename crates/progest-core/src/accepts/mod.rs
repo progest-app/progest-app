@@ -27,6 +27,7 @@ pub mod loader;
 pub mod resolve;
 pub mod schema;
 pub mod types;
+pub mod writer;
 
 pub use evaluate::{evaluate_placement_for_file, placement_rule_id};
 pub use loader::{AcceptsExtraction, AcceptsLoadError, AcceptsWarning, extract_accepts};
@@ -39,3 +40,4 @@ pub use types::{
     AcceptsToken, BUILTIN_ALIASES, EXT_NONE, Ext, RawAccepts, builtin_alias, is_valid_alias_name,
     normalize_ext, normalize_ext_from_basename,
 };
+pub use writer::{inject_accepts, remove_accepts};
