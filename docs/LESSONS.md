@@ -512,3 +512,24 @@
 - `fn main()` がサブコマンド dispatch で 108 行に膨らみ clippy-deny
 - 解決: 共通 helper（例: `to_exit_code(i32) -> ExitCode`）を抽出。それでも 100 行超えるなら `#[allow(clippy::too_many_lines)]` を main に付ける（巨大 match は意味的にまとまっているので分割しないほうが読みやすい）
 - 場所: `crates/progest-cli/src/main.rs`
+
+## 17. shadcn / フロントエンド primitive
+
+### shadcn の `Resizable` は v4 の `react-resizable-panels` を呼ぶ — `direction` ではなく `orientation`、`autoSaveId` ではなく `id`
+- v0/v1/v2 の `react-resizable-panels`（多くのチュートリアルが書いている API）と v4 で props が非互換
+- v4: `<ResizablePanelGroup orientation="horizontal" id="my-shell">`、layout の永続化は `id` を渡せば自動で localStorage に保存される
+- 旧 API（`direction` / `autoSaveId`）で書くと TS で `Property 'direction' does not exist on type 'IntrinsicAttributes & HTMLAttributes<HTMLDivElement>'` と言われる（shadcn wrapper が `GroupProps = HTMLAttributes<HTMLDivElement> & {...}` を `...rest` で渡すため、誤入力した時のエラーが「div の attribute にない」という遠回しな形になる）
+- 解決: shadcn `add resizable` で生成された `components/ui/resizable.tsx` の `ResizablePrimitive.GroupProps` を実際に開いて、現行 v4 のプロップ名を確認する
+- 場所: `app/src/App.tsx::MainShell`
+
+### accepts 編集 → 保存だけでは placement 違反バッジは更新されない（lint pass を通さないと violations table が古いまま）
+- インスペクタが `accepts_write` で `.dirmeta.toml` を更新しても、フロントが見ている `is:violation` / `is:misplaced` は SQLite `violations` テーブル経由 — `progest lint` が走らない限り古い違反が残り続ける
+- 解決: `lint_run` Tauri IPC を新設（CLI lint と同じ蓋: rules/schema/cleanup を inline ロード → `Index::list_files` → `lint_paths` → `write_to_index`）し、accepts 保存後に自動 trigger。フロントは `ProjectContext.refreshTick` を bump して FlatView / TreeView に再 fetch を促す
+- 場所: `crates/progest-tauri/src/lint_commands.rs`、`app/src/components/directory-inspector.tsx::onSave`、`app/src/lib/project-context.tsx::refreshTick`
+- 注意: TreeView は lazy load + cache なので、`refreshTick` 反応でキャッシュ全消し → **現在 expanded な path 全部を再 fetch** する追加 effect が必要（root だけ refetch だと展開済 dir が空になる）
+
+### `tsc -b` は gitignored な `vite.config.{js,d.ts}` を生成する — `vp fmt --check` から除外しないと CI で落ちる
+- `app/package.json` の `build: "tsc -b && vp build"` は素朴に `vite.config.ts` を上書き compile する
+- gitignore には入っているが、ローカルで build 走らせた直後に `mise run check` すると oxfmt が「フォーマットが乱れた `vite.config.js` を見つけた」と fail する
+- 解決: `app/vite.config.ts` の `fmt.ignorePatterns` に `vite.config.js` / `vite.config.d.ts` を追加（dist/** や registry コンポーネントと同じ枠組み）
+- 場所: `app/vite.config.ts`
