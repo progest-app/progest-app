@@ -75,7 +75,7 @@ pub fn run() {
             // is ~14 px; ((40 − 14) / 2) ≈ 13 vertically. x = 14 keeps
             // the cluster off the left edge by roughly the same amount
             // macOS's Big Sur+ default title bars use.
-            let mut builder = tauri::webview::WebviewWindowBuilder::new(
+            let builder = tauri::webview::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::default(),
@@ -83,13 +83,14 @@ pub fn run() {
             .title("Progest")
             .inner_size(1280.0, 800.0)
             .min_inner_size(800.0, 600.0);
+            // Shadow the binding inside the cfg branch so non-macOS
+            // targets don't see an unused `mut` (clippy `-D warnings`
+            // failed CI on Linux otherwise).
             #[cfg(target_os = "macos")]
-            {
-                builder = builder
-                    .title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .hidden_title(true)
-                    .traffic_light_position(tauri::LogicalPosition::new(14.0, 16.0));
-            }
+            let builder = builder
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(tauri::LogicalPosition::new(14.0, 16.0));
             builder.build()?;
             Ok(())
         })
