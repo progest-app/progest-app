@@ -1,4 +1,5 @@
 import * as React from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FolderOpen, PanelLeft, PanelRight, PanelTop, Search } from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -36,9 +37,30 @@ export function TitleBar(props: {
     [panels],
   );
 
+  // Programmatic drag fallback. `data-tauri-drag-region` is supposed
+  // to do this automatically, but the attribute hasn't worked
+  // reliably for us in Tauri 2.10 + macOS — particularly inside
+  // nested flex containers. Wiring `startDragging()` ourselves is
+  // deterministic: walk up from the click target, and if we hit an
+  // interactive element first (button / input / role=button / a /
+  // [data-no-drag]) we bail; otherwise we start the window drag.
+  const onMouseDown = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (!(e.target instanceof HTMLElement)) return;
+    if (e.target.closest("button, input, select, textarea, a, [role='button'], [data-no-drag]"))
+      return;
+    if (e.detail === 2) {
+      // macOS double-click on titlebar zooms the window per system pref.
+      void getCurrentWindow().toggleMaximize();
+      return;
+    }
+    void getCurrentWindow().startDragging();
+  }, []);
+
   return (
     <div
       data-tauri-drag-region
+      onMouseDown={onMouseDown}
       className={cn(
         "grid h-10 select-none items-center gap-2 border-b bg-background px-2",
         // 3-column grid keeps the search bar visually centered even when
