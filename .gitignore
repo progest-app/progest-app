@@ -43,6 +43,10 @@ desktop.ini
 .progest/thumbs
 .progest/local
 
+# Claude Code per-user agent state.
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
 # Local scratch
 /scratch
 /tmp
