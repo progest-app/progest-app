@@ -14,7 +14,16 @@ import {
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const MODES: AcceptsMode[] = ["strict", "warn", "hint", "off"];
@@ -275,32 +284,38 @@ function OwnSection(props: {
           onChange={(next) => setDraft({ ...draft, exts: next })}
         />
 
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="accepts-inherit"
             checked={draft.inherit}
-            onChange={(e) => setDraft({ ...draft, inherit: e.target.checked })}
+            onCheckedChange={(c) => setDraft({ ...draft, inherit: c === true })}
           />
-          <span>
+          <Label htmlFor="accepts-inherit" className="text-xs font-normal">
             Inherit from ancestors
             <span className="ml-1 text-muted-foreground">(union with parent chain)</span>
-          </span>
-        </label>
+          </Label>
+        </div>
 
-        <label className="flex items-center gap-2">
-          <span className="w-14 shrink-0 text-muted-foreground">Mode</span>
-          <select
-            className="rounded border bg-background px-2 py-1"
+        <div className="flex items-center gap-2">
+          <Label htmlFor="accepts-mode" className="w-14 shrink-0 text-muted-foreground">
+            Mode
+          </Label>
+          <Select
             value={draft.mode}
-            onChange={(e) => setDraft({ ...draft, mode: e.target.value as AcceptsMode })}
+            onValueChange={(v) => setDraft({ ...draft, mode: v as AcceptsMode })}
           >
-            {MODES.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger id="accepts-mode" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODES.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </div>
   );
