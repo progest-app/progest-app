@@ -161,6 +161,10 @@ export function CommandPalette(props: { onPickHit?: (hit: RichSearchHit) => void
         onOpenChange={setOpen}
         title="Search"
         description="Find files by tag, type, name, or arbitrary DSL query."
+        // Override the shadcn `sm:max-w-sm` default — palette hits and
+        // long DSL queries need more horizontal room than a confirm
+        // dialog. `2xl` ≈ 672 px matches the Linear / Raycast feel.
+        className="sm:max-w-2xl"
       >
         <Command shouldFilter={false}>
           <CommandInput
