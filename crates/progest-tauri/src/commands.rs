@@ -587,7 +587,7 @@ fn record_history(ctx: &ProjectContext, query: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn no_project_error() -> String {
+pub(crate) fn no_project_error() -> String {
     "no_project: launch progest-desktop from inside a Progest project, or set PROGEST_PROJECT"
         .to_string()
 }
@@ -599,7 +599,7 @@ fn no_project_error() -> String {
 /// Load the project's alias catalog, layering `schema.toml` `[alias]`
 /// entries over the builtin set. Falls back to builtin-only when the
 /// project file is missing or malformed — matching CLI parity.
-fn load_alias_catalog_for_ctx(ctx: &ProjectContext) -> AliasCatalog {
+pub(crate) fn load_alias_catalog_for_ctx(ctx: &ProjectContext) -> AliasCatalog {
     let path = ctx.root.schema_toml();
     let Ok(text) = std::fs::read_to_string(&path) else {
         return AliasCatalog::builtin();
