@@ -174,10 +174,10 @@ function Welcome() {
             <ul className="grid gap-1">
               {recent.slice(0, 8).map((entry) => (
                 <li key={entry.root}>
-                  <button
-                    type="button"
-                    className="grid w-full grid-cols-[1fr_auto] items-center gap-2 rounded-md border px-2 py-1.5 text-left hover:bg-accent"
+                  <Button
+                    variant="outline"
                     onClick={() => void pickRecent(entry)}
+                    className="grid h-auto w-full grid-cols-[1fr_auto] items-center gap-2 px-2 py-1.5 text-left font-normal"
                   >
                     <div className="min-w-0">
                       <div className="truncate">{entry.name || entry.root}</div>
@@ -188,7 +188,7 @@ function Welcome() {
                     <span className="text-[0.625rem] text-muted-foreground">
                       {relTime(entry.last_opened)}
                     </span>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>

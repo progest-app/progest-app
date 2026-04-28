@@ -515,6 +515,19 @@
 
 ## 17. shadcn / フロントエンド primitive
 
+### フォーム入力は必ず shadcn primitive を使う（native `<input type="checkbox">` / `<select>` を直書きしない）
+- 理由 1: テーマトークン（dark mode、focus ring、placeholder 色）が一括して shadcn 側で揃う。native を使うと OS デフォルトの見た目が混ざり、`text-amber-600 dark:text-amber-300` 系の手書き override が必要になり、PR #36 で禁じた「手動 dark: override」も再発しやすい。
+- 理由 2: a11y。Radix ベースの shadcn primitive は labelling / keyboard / aria が組み込み済み。native でも label を関連付ければ動くが、毎回手で書くと忘れる。
+- 対応表:
+  - `<input type="checkbox">` → `Checkbox` (`pnpm dlx shadcn@latest add checkbox`) + `Label` を `htmlFor` で関連付け
+  - `<select>` / `<option>` → `Select` / `SelectTrigger` / `SelectContent` / `SelectItem` (`add select`)
+  - 排他トグル群（list/grid 等） → `ToggleGroup` + `ToggleGroupItem` (`add toggle-group`)
+  - `<label>` で行ごと囲む pattern → shadcn `Label` をそのまま wrap として使う（root は `<label>` 要素なので implicit 関連付けは保たれる）
+- 注意点:
+  - **Radix Select は空文字列の `value` を許容しない** — "選択なし" 相当を表現したい時は `__ad_hoc__` のような sentinel を `<SelectItem value="...">` に持たせ、コンポーネント境界で `"" ⇄ sentinel` を変換する。`value=""` を渡すと `<Select.Item /> must have a value prop that is not an empty string.` で実行時に死ぬ
+  - **Radix ToggleGroup は active item を再度クリックすると `""` を返す**。"必ずどちらかが選択される" UX にしたい場合は `onValueChange` で `if (v === "list" || v === "grid") onChange(v)` のようにフィルタする
+- 場所: `app/src/components/{directory-inspector,flat-view}.tsx`、`docs/CLAUDE.md` の「避けるべきこと」にも追記済み
+
 ### shadcn の `Resizable` は v4 の `react-resizable-panels` を呼ぶ — `direction` ではなく `orientation`、`autoSaveId` ではなく `id`
 - v0/v1/v2 の `react-resizable-panels`（多くのチュートリアルが書いている API）と v4 で props が非互換
 - v4: `<ResizablePanelGroup orientation="horizontal" id="my-shell">`、layout の永続化は `id` を渡せば自動で localStorage に保存される

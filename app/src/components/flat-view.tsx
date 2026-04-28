@@ -25,6 +25,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ViolationBadges } from "@/components/violation-badges";
 
 const DEBOUNCE_MS = 200;
@@ -297,52 +306,55 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Sentinel slot for "no saved view selected" — Radix Select rejects an
+// empty-string value, so we map "" ⇄ AD_HOC at the component boundary.
+const AD_HOC = "__ad_hoc__";
+
 function ViewSelect(props: {
   views: View[];
   active: string | null;
   onSelect: (id: string) => void;
 }) {
-  // Native <select> for simplicity; a richer dropdown can land later.
   return (
-    <select
-      className="h-8 rounded-md border bg-card px-2 text-xs"
-      value={props.active ?? ""}
-      onChange={(e) => props.onSelect(e.target.value)}
+    <Select
+      value={props.active ?? AD_HOC}
+      onValueChange={(v) => props.onSelect(v === AD_HOC ? "" : v)}
     >
-      <option value="">— ad-hoc —</option>
-      {props.views.map((v) => (
-        <option key={v.id} value={v.id}>
-          {v.name} ({v.id})
-        </option>
-      ))}
-    </select>
+      <SelectTrigger size="sm" className="h-8 min-w-40 text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={AD_HOC}>— ad-hoc —</SelectItem>
+        {props.views.map((v) => (
+          <SelectItem key={v.id} value={v.id}>
+            {v.name} ({v.id})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
 function DisplayToggle(props: { value: ViewDisplay; onChange: (v: ViewDisplay) => void }) {
   return (
-    <div className="inline-flex overflow-hidden rounded-md border">
-      <button
-        type="button"
-        className={`flex h-8 items-center px-2 text-xs ${
-          props.value === "list" ? "bg-accent" : "hover:bg-accent"
-        }`}
-        onClick={() => props.onChange("list")}
-        title="List"
-      >
+    <ToggleGroup
+      type="single"
+      size="sm"
+      variant="outline"
+      value={props.value}
+      onValueChange={(v) => {
+        // Radix returns "" when the user clicks the active item;
+        // ignore that to keep one display mode always selected.
+        if (v === "list" || v === "grid") props.onChange(v);
+      }}
+    >
+      <ToggleGroupItem value="list" title="List" aria-label="List view">
         <ListIcon className="size-3.5" />
-      </button>
-      <button
-        type="button"
-        className={`flex h-8 items-center border-l px-2 text-xs ${
-          props.value === "grid" ? "bg-accent" : "hover:bg-accent"
-        }`}
-        onClick={() => props.onChange("grid")}
-        title="Grid"
-      >
+      </ToggleGroupItem>
+      <ToggleGroupItem value="grid" title="Grid" aria-label="Grid view">
         <LayoutGrid className="size-3.5" />
-      </button>
-    </div>
+      </ToggleGroupItem>
+    </ToggleGroup>
   );
 }
 
@@ -528,10 +540,13 @@ function SaveAsDialog(props: {
 }
 
 function Field(props: { label: string; children: React.ReactNode }) {
+  // shadcn `<Label>` renders to a `<label>` element (via radix-ui),
+  // so wrapping the row keeps the implicit label↔input association
+  // without forcing every caller to thread an explicit `htmlFor`.
   return (
-    <label className="grid grid-cols-[6rem_1fr] items-center gap-2">
+    <Label className="grid grid-cols-[6rem_1fr] items-center gap-2 font-normal">
       <span className="text-muted-foreground">{props.label}</span>
       <div>{props.children}</div>
-    </label>
+    </Label>
   );
 }
