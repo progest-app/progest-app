@@ -1,6 +1,6 @@
 import * as React from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { FolderOpen, PanelLeft, PanelRight, PanelTop, Search } from "lucide-react";
+import { FolderOpen, FolderTree, LayoutList, Search, SlidersHorizontal } from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -111,13 +111,19 @@ export function TitleBar(props: {
             // ToggleGroupItem clicks dispatch through `onTogglePanel`.
           }}
         >
+          {/* Icons reflect panel content rather than position so the
+              affordance is readable without remembering which side
+              each pane lives on:
+                Tree     → FolderTree (directory hierarchy)
+                Flat     → LayoutList (search results / file list)
+                Inspector → SlidersHorizontal (accepts editor / config) */}
           <ToggleGroupItem
             value="tree"
             title="Toggle tree pane"
             aria-label="Toggle tree pane"
             onClick={() => onTogglePanel("tree")}
           >
-            <PanelLeft className="size-3.5" />
+            <FolderTree className="size-3.5" />
           </ToggleGroupItem>
           <ToggleGroupItem
             value="flat"
@@ -125,7 +131,7 @@ export function TitleBar(props: {
             aria-label="Toggle flat pane"
             onClick={() => onTogglePanel("flat")}
           >
-            <PanelTop className="size-3.5" />
+            <LayoutList className="size-3.5" />
           </ToggleGroupItem>
           <ToggleGroupItem
             value="inspector"
@@ -133,7 +139,7 @@ export function TitleBar(props: {
             aria-label="Toggle inspector pane"
             onClick={() => onTogglePanel("inspector")}
           >
-            <PanelRight className="size-3.5" />
+            <SlidersHorizontal className="size-3.5" />
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
