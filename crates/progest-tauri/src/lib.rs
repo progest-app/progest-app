@@ -88,7 +88,7 @@ pub fn run() {
                 builder = builder
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
                     .hidden_title(true)
-                    .traffic_light_position(tauri::LogicalPosition::new(14.0, 13.0));
+                    .traffic_light_position(tauri::LogicalPosition::new(14.0, 16.0));
             }
             builder.build()?;
             Ok(())
