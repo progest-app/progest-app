@@ -14,6 +14,7 @@
 use std::str::FromStr;
 
 use progest_core::fs::ProjectPath;
+use progest_core::history::{AppendRequest, Operation, Store as _};
 use progest_core::identity::FileId;
 use progest_core::index::{Index, SearchProjection};
 use progest_core::meta::{MetaDocument, MetaStore, NotesSection, StdMetaStore, sidecar_path};
@@ -46,6 +47,12 @@ pub fn tag_add(file_id: String, tag: String, state: State<'_, AppState>) -> Resu
     let ctx = guard.as_ref().ok_or_else(no_project_error)?;
     let id = parse_file_id(&file_id)?;
     tag::add(&ctx.index, &id, &tag).map_err(|e| format!("add tag: {e}"))?;
+    if let Some(path) = resolve_path(&ctx.index, &id) {
+        let _ = ctx.history.append(&AppendRequest::new(Operation::TagAdd {
+            path,
+            tag: tag.clone(),
+        }));
+    }
     Ok(())
 }
 
@@ -58,6 +65,14 @@ pub fn tag_remove(file_id: String, tag: String, state: State<'_, AppState>) -> R
     let ctx = guard.as_ref().ok_or_else(no_project_error)?;
     let id = parse_file_id(&file_id)?;
     tag::remove(&ctx.index, &id, &tag).map_err(|e| format!("remove tag: {e}"))?;
+    if let Some(path) = resolve_path(&ctx.index, &id) {
+        let _ = ctx
+            .history
+            .append(&AppendRequest::new(Operation::TagRemove {
+                path,
+                tag: tag.clone(),
+            }));
+    }
     Ok(())
 }
 
@@ -127,12 +142,20 @@ pub fn notes_write(path: String, body: String, state: State<'_, AppState>) -> Re
             sidecar.as_str()
         ));
     }
-    let mut doc: MetaDocument = meta
+    let before: MetaDocument = meta
         .load(&sidecar)
         .map_err(|e| format!("load sidecar: {e}"))?;
+    let mut doc = before.clone();
     update_notes(&mut doc, &body);
     meta.save(&sidecar, &doc)
         .map_err(|e| format!("save sidecar: {e}"))?;
+    if before != doc {
+        let _ = ctx.history.append(&AppendRequest::new(Operation::MetaEdit {
+            path: project_path.clone(),
+            before: Box::new(before),
+            after: Box::new(doc.clone()),
+        }));
+    }
 
     // Mirror the new body into the search-projection column so FTS
     // reflects the edit immediately. Best-effort: a row that's not in
@@ -154,6 +177,10 @@ pub fn notes_write(path: String, body: String, state: State<'_, AppState>) -> Re
 
 fn parse_file_id(s: &str) -> Result<FileId, String> {
     FileId::from_str(s).map_err(|e| format!("invalid file_id `{s}`: {e}"))
+}
+
+fn resolve_path(index: &dyn Index, file_id: &FileId) -> Option<ProjectPath> {
+    index.get_file(file_id).ok().flatten().map(|row| row.path)
 }
 
 /// Replace `doc.notes` with the new body, preserving any extra keys

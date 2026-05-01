@@ -8,6 +8,8 @@ import {
   aiGetConfig,
   aiSetConfig,
   aiSetKey,
+  historyGetConfig,
+  historySetConfig,
   type AiConfigResponse,
 } from "@/lib/ipc";
 import { useSettings } from "@/lib/settings-context";
@@ -285,6 +287,7 @@ function GeneralTab() {
     <div className="grid gap-4">
       <ThemeSettings />
       <SearchDebounceSettings />
+      <HistoryRetentionSettings />
       {isMac ? <MenubarToggle /> : null}
     </div>
   );
@@ -345,6 +348,58 @@ function SearchDebounceSettings() {
       />
       <span className="text-[0.625rem] text-muted-foreground">
         Delay before search runs while typing. Higher = less jank, lower = faster results.
+      </span>
+    </div>
+  );
+}
+
+function HistoryRetentionSettings() {
+  const [retention, setRetention] = React.useState(50);
+  const [loaded, setLoaded] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    void historyGetConfig()
+      .then((c) => {
+        setRetention(c.retention);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  const commit = async (value: number) => {
+    setRetention(value);
+    setSaving(true);
+    try {
+      await historySetConfig({ retention: value });
+    } catch (e) {
+      toast.error(`Failed to save history retention: ${e instanceof IpcError ? e.raw : String(e)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <Label>History retention</Label>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {retention} {saving ? "(saving…)" : "entries"}
+        </span>
+      </div>
+      <Slider
+        min={10}
+        max={500}
+        step={10}
+        value={[retention]}
+        onValueChange={([v]) => {
+          if (v != null) void commit(v);
+        }}
+      />
+      <span className="text-[0.625rem] text-muted-foreground">
+        Maximum number of undo/redo entries kept. Older entries are evicted automatically.
       </span>
     </div>
   );

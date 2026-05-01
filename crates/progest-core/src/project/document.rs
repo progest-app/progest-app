@@ -60,6 +60,25 @@ impl TryFrom<String> for ProjectId {
     }
 }
 
+/// Per-project history configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryConfig {
+    #[serde(default = "default_retention")]
+    pub retention: usize,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            retention: default_retention(),
+        }
+    }
+}
+
+const fn default_retention() -> usize {
+    50
+}
+
 /// Parsed representation of `.progest/project.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectDocument {
@@ -73,10 +92,17 @@ pub struct ProjectDocument {
     /// migrations and for the About dialog.
     pub progest_version: String,
 
+    #[serde(default, skip_serializing_if = "is_default_history")]
+    pub history: HistoryConfig,
+
     /// Unknown top-level keys preserved verbatim so that a newer Progest
     /// release can add fields without an older installation stripping them.
     #[serde(flatten, default)]
     pub extra: Table,
+}
+
+fn is_default_history(h: &HistoryConfig) -> bool {
+    h.retention == default_retention()
 }
 
 impl ProjectDocument {
@@ -87,6 +113,7 @@ impl ProjectDocument {
             id: ProjectId::new_v7(),
             name,
             progest_version: crate::VERSION.to_string(),
+            history: HistoryConfig::default(),
             extra: Table::new(),
         }
     }

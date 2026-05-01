@@ -662,6 +662,61 @@ export async function lintRun(onProgress?: (e: ProgressEvent) => void): Promise<
   }
 }
 
+// --- history (undo/redo) ---------------------------------------------------
+
+export type HistoryEntryWire = {
+  id: number;
+  ts: string;
+  op_kind: string;
+  summary: string;
+  consumed: boolean;
+  group_id: string | null;
+};
+
+export async function historyList(limit?: number): Promise<HistoryEntryWire[]> {
+  try {
+    return await invoke<HistoryEntryWire[]>("history_list", { limit: limit ?? null });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function historyUndo(): Promise<HistoryEntryWire[]> {
+  try {
+    return await invoke<HistoryEntryWire[]>("history_undo");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function historyRedo(): Promise<HistoryEntryWire[]> {
+  try {
+    return await invoke<HistoryEntryWire[]>("history_redo");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export type HistoryConfigResponse = {
+  retention: number;
+};
+
+export async function historyGetConfig(): Promise<HistoryConfigResponse> {
+  try {
+    return await invoke<HistoryConfigResponse>("history_get_config");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function historySetConfig(config: { retention: number }): Promise<void> {
+  try {
+    await invoke<void>("history_set_config", { config });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- AI suggestions -------------------------------------------------------
 
 export type AiSuggestionWire = {

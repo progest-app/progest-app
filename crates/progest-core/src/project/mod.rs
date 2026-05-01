@@ -22,7 +22,7 @@ pub mod layout;
 pub mod preview;
 pub mod root;
 
-pub use document::{ProjectDocument, ProjectError, ProjectId};
+pub use document::{HistoryConfig, ProjectDocument, ProjectError, ProjectId};
 pub use layout::{
     DOT_DIR, GITIGNORE_ENTRIES, HISTORY_DB_FILENAME, IGNORE_TEMPLATE, INDEX_DB_FILENAME, LOCAL_DIR,
     PROJECT_TOML_FILENAME, RULES_TOML_FILENAME, SCHEMA_TOML_FILENAME, SEARCH_HISTORY_FILENAME,

@@ -17,6 +17,8 @@ export function AppMenubar(props: {
   onNewFolder: MenuAction;
   onImport: MenuAction;
   onSettings: MenuAction;
+  onUndo: MenuAction;
+  onRedo: MenuAction;
   onToggleTree: MenuAction;
   onToggleFlat: MenuAction;
   onToggleInspector: MenuAction;
@@ -46,6 +48,17 @@ export function AppMenubar(props: {
           <MenubarSeparator />
           <MenubarItem onClick={props.onSettings}>
             Settings… <MenubarShortcut>{mod},</MenubarShortcut>
+          </MenubarItem>
+        </MenubarContent>
+      </MenubarMenu>
+      <MenubarMenu>
+        <MenubarTrigger className="px-2 py-0.5 text-xs">Edit</MenubarTrigger>
+        <MenubarContent>
+          <MenubarItem onClick={props.onUndo}>
+            Undo <MenubarShortcut>{mod}Z</MenubarShortcut>
+          </MenubarItem>
+          <MenubarItem onClick={props.onRedo}>
+            Redo <MenubarShortcut>{mod}⇧Z</MenubarShortcut>
           </MenubarItem>
         </MenubarContent>
       </MenubarMenu>

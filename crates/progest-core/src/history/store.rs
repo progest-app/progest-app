@@ -36,7 +36,7 @@ use super::inverse::invert;
 use super::migration;
 use super::types::{AppendRequest, Entry, EntryId, OpKind, Operation, now_iso8601};
 
-/// Maximum entries kept on disk (REQUIREMENTS §3.4).
+/// Default maximum entries kept on disk (REQUIREMENTS §3.4).
 pub const RETENTION_LIMIT: usize = 50;
 
 const POINTER_KEY: &str = "pointer";
@@ -63,11 +63,18 @@ pub trait Store: Send + Sync {
     /// Re-apply the most recently undone operation (the entry's
     /// `op` — see [`Entry::op`]).
     fn redo(&self) -> Result<Entry, HistoryError>;
+
+    /// Update the retention limit. The new limit takes effect on the
+    /// next `append`.
+    fn set_retention(&self, limit: usize);
+
+    fn retention(&self) -> usize;
 }
 
 /// SQLite-backed [`Store`].
 pub struct SqliteStore {
     conn: Mutex<Connection>,
+    retention: std::sync::atomic::AtomicUsize,
 }
 
 impl SqliteStore {
@@ -86,6 +93,7 @@ impl SqliteStore {
         migration::apply(&mut conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
+            retention: std::sync::atomic::AtomicUsize::new(RETENTION_LIMIT),
         })
     }
 
@@ -136,7 +144,8 @@ impl Store for SqliteStore {
             let new_id = tx.last_insert_rowid();
 
             set_pointer(&tx, Some(new_id))?;
-            enforce_retention(&tx)?;
+            let limit = self.retention.load(std::sync::atomic::Ordering::Relaxed);
+            enforce_retention(&tx, limit)?;
 
             // Read back the row so callers always see the persisted
             // shape (including the server-assigned id and ts).
@@ -221,6 +230,15 @@ impl Store for SqliteStore {
             Ok(entry)
         })
     }
+
+    fn set_retention(&self, limit: usize) {
+        self.retention
+            .store(limit.max(1), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn retention(&self) -> usize {
+        self.retention.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 // --- Helpers ---------------------------------------------------------------
@@ -255,11 +273,8 @@ fn set_pointer(conn: &Connection, value: Option<EntryId>) -> Result<(), HistoryE
     Ok(())
 }
 
-fn enforce_retention(conn: &Connection) -> Result<(), HistoryError> {
-    // Keep the newest RETENTION_LIMIT rows, independent of consumed
-    // state. The cutoff id is the (RETENTION_LIMIT)-th newest id —
-    // anything strictly smaller gets evicted.
-    let offset = i64::try_from(RETENTION_LIMIT).unwrap_or(i64::MAX);
+fn enforce_retention(conn: &Connection, retention_limit: usize) -> Result<(), HistoryError> {
+    let offset = i64::try_from(retention_limit).unwrap_or(i64::MAX);
     let cutoff: Option<EntryId> = conn
         .query_row(
             "SELECT id FROM entries ORDER BY id DESC LIMIT 1 OFFSET ?1",
