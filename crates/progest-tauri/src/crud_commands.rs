@@ -218,3 +218,63 @@ pub async fn fs_move(
     .await
     .map_err(|e| format!("join: {e}"))?
 }
+
+// ── Open / Reveal ───────────────────────────────────────────────────
+
+/// Open a file with the OS default application.
+#[tauri::command]
+pub async fn fs_open(path: String, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+        let abs = ctx.root.root().join(&path);
+        open::that(&abs).map_err(|e| format!("open `{path}`: {e}"))
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+/// Reveal a file or directory in the OS file manager (Finder / Explorer).
+#[tauri::command]
+pub async fn fs_reveal(path: String, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+        let abs = ctx.root.root().join(&path);
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg("-R")
+                .arg(&abs)
+                .spawn()
+                .map_err(|e| format!("reveal: {e}"))?;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer")
+                .arg("/select,")
+                .arg(&abs)
+                .spawn()
+                .map_err(|e| format!("reveal: {e}"))?;
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let parent = abs.parent().unwrap_or(&abs);
+            open::that(parent).map_err(|e| format!("reveal: {e}"))?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+/// Return the absolute path for clipboard copy.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn fs_abs_path(path: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+    Ok(ctx.root.root().join(path).display().to_string())
+}

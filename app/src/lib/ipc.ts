@@ -593,6 +593,30 @@ export async function fsMove(path: string, destDir: string): Promise<MoveOutcome
   }
 }
 
+export async function fsOpen(path: string): Promise<void> {
+  try {
+    await invoke<void>("fs_open", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function fsReveal(path: string): Promise<void> {
+  try {
+    await invoke<void>("fs_reveal", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function fsAbsPath(path: string): Promise<string> {
+  try {
+    return await invoke<string>("fs_abs_path", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- lint refresh ----------------------------------------------------------
 
 export type LintRunResponse = {
