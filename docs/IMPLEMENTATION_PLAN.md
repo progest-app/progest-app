@@ -1,7 +1,7 @@
 # Progest 実装計画書
 
 作成日: 2026-04-20
-対象バージョン: v1.0 MVP（macOS 先行）
+対象バージョン: v1.0 MVP（macOS + Windows）
 想定期間: 6ヶ月（M0〜M5、予備1ヶ月含む）
 
 [REQUIREMENTS.md](./REQUIREMENTS.md) と対で読むこと。M2 完了アーカイブは [`M2_HANDOFF.md`](./M2_HANDOFF.md)、M3 完了アーカイブは [`M3_HANDOFF.md`](./M3_HANDOFF.md)。
@@ -10,7 +10,7 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-04-30（**M4 進行中**。import + thumbnail + template 完了。次は D&D import UI + thumbnail 統合 → AI）
+最終更新: 2026-05-01（**M4 進行中**。import + thumbnail + template + D&D/UI + delete + toast + Windows 対応完了。次は AI）
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
@@ -66,8 +66,21 @@
   - [x] `core::thumbnail` — 生成キュー、LRU キャッシュ（`.progest/thumbs/<file_id>_<fp_hex>_<size>.webp`）、WebP lossless 長辺 256px。画像（image crate: PNG/JPEG/WebP/TIFF/GIF/BMP）+ PSD（psd crate）+ HEIC（libheif-rs、`heic` feature flag）+ 動画（ffmpeg sidecar、PATH 探索 graceful degradation）。`generate_for_outcomes()` で reconcile 後自動生成。16 unit test
   - [x] CLI `progest thumbnail generate [PATH...] [--force] [--size] [--format]` + `progest thumbnail clean [--format]`
   - [x] `progest scan` 後の post-reconcile thumbnail 自動生成
-  - [ ] D&D import UI + thumbnail 統合（grid view サムネ表示）— 次着手
+  - [x] D&D import UI + thumbnail 統合 — Tauri D&D wire + import 確認モーダル + accepts サジェスト + grid view サムネ表示（feat/m4-dnd-import-thumbnail、PR #65）
+  - [x] ファイル削除 — OS trash 経由 + `.meta` sidecar 同時削除 + context menu（feat/delete-file、PR #66）
+  - [x] Toast 通知 — import / delete 操作完了時の feedback（feat/toast-notifications、PR #68）
+  - [x] 進捗レポート — init / import / lint / template の progress channel（feat/progress-notifications、PR #69）
   - [x] `core::template` — 単一 TOML テンプレート（ディレクトリ構造 + rules/schema/views/dirmeta 埋め込み）、export + apply + serialize/deserialize。CLI `progest template export/apply` + `progest init --template`。Tauri IPC `template_export/preview/apply`。8 unit test
+  - [x] **Windows 対応**（v1.1 → M4 に前倒し、PR #70–#75）:
+    - `dunce::canonicalize` で `\\?\` prefix 除去（全 canonicalize コールサイト）
+    - `#[cfg(windows)]` atomic overwrite ガード（`write_atomic` / `rename` / `recent::save`）
+    - `which` crate で cross-platform ffmpeg 探索 + `ffmpeg.exe` adjacent check
+    - SQLite migration 0003: `COLLATE NOCASE` on `files.path`（case-insensitive FS 対応）
+    - `retry_sharing_violation` — DCC file lock 対応（exponential backoff 5 attempts）
+    - `ConstraintFailure::WindowsReservedName` — CON/PRN/AUX/NUL/COM0-9/LPT0-9（cross-platform lint）
+    - `fs::placeholder` — OneDrive placeholder 検出 + scanner skip
+    - platform-aware titlebar padding + keyboard shortcut labels（`⌘K` / `Ctrl+K`）
+    - CI: `windows-latest` test matrix + `build-windows` job + NSIS installer config
   - [ ] `core::ai` + UI（BYOK + 命名/タグ/notes/配置先提案）
   - [ ] M4 polish + docs（doctor staging cleanup + undo wiring）
 

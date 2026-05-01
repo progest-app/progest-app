@@ -558,7 +558,7 @@ accepts に違反する既存ファイルを検出する。命名違反とは別
 - Spotlight から `.progest/thumbs/` `.progest/index.db` を除外推奨
 - `code signing + notarization` 必須（配布時）
 
-### 5.2 Windows（v1.1）
+### 5.2 Windows（v1.0 — M4 で前倒し実装済み）
 
 - 長パス: `\\?\` プレフィックス対応（dunce crate 相当）
 - ReadDirectoryChangesW + 定期 reconcile 必須（イベント欠落あり）
@@ -567,7 +567,7 @@ accepts に違反する既存ファイルを検出する。命名違反とは別
 - OneDrive Placeholder（仮想化ファイル）検出 + 警告
 - UNC パス対応
 - 予約ファイル名（`CON`, `PRN` 等）回避
-- MSIX または code-signed installer
+- NSIS installer（Tauri 標準）
 
 ### 5.3 Linux（v2+、ベストエフォート）
 
