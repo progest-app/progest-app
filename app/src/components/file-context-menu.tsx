@@ -165,7 +165,9 @@ export function FileContextMenu(props: FileContextMenuProps) {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Rename</DialogTitle>
-            <DialogDescription>Enter a new name for {filename}.</DialogDescription>
+            <DialogDescription className="truncate">
+              Enter a new name for {filename}.
+            </DialogDescription>
           </DialogHeader>
           <Input
             ref={renameInputRef}
@@ -207,7 +209,7 @@ export function FileContextMenu(props: FileContextMenuProps) {
               This will move the file to the OS trash. You can restore it from the trash later.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-0.5 rounded border bg-muted/30 p-2 font-mono text-xs">
+          <div className="space-y-0.5 overflow-hidden rounded border bg-muted/30 p-2 font-mono text-xs">
             <div className="truncate">{filename}</div>
             {preview?.has_sidecar ? (
               <div className="text-muted-foreground">+ .meta sidecar</div>

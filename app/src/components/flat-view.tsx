@@ -575,7 +575,7 @@ function HitGrid(props: {
           <FileContextMenu key={hit.file_id} path={hit.path}>
             <button
               type="button"
-              className="flex flex-col gap-1 rounded-md border p-2 text-left hover:bg-accent"
+              className="flex min-w-0 flex-col gap-1 overflow-hidden rounded-md border p-2 text-left hover:bg-accent"
               onClick={() => props.onPick?.(hit)}
             >
               <div className="flex w-full h-full aspect-square items-center justify-center rounded bg-muted/40 overflow-hidden">
@@ -591,10 +591,10 @@ function HitGrid(props: {
                   <FileIcon className="size-8 opacity-50" />
                 )}
               </div>
-              <div className="truncate text-xs font-mono" title={hit.path}>
+              <div className="w-full min-w-0 truncate text-xs font-mono" title={hit.path}>
                 {hit.name ?? hit.path.split("/").pop()}
               </div>
-              <div className="flex items-center justify-between text-[0.625rem] text-muted-foreground">
+              <div className="flex w-full min-w-0 items-center justify-between text-[0.625rem] text-muted-foreground">
                 <span>{hit.kind}</span>
                 <ViolationBadges counts={hit.violations} />
               </div>
