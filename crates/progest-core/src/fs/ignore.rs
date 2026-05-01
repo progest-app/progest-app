@@ -22,13 +22,13 @@ use super::{FileSystem, FsError, ProjectPath};
 /// `.progest/`, which stores Progest's own state and must never appear in
 /// the scanner output.
 pub const DEFAULT_PATTERNS: &[&str] = &[
-    ".git/",
-    ".svn/",
-    ".hg/",
+    // Hidden (dot) files and directories. CG/VFX pipelines never manage
+    // dotfiles as project assets; users who need exceptions can negate
+    // specific entries in `.progest/ignore` (e.g. `!.env.example`).
+    ".*",
     "node_modules/",
     "__pycache__/",
     "venv/",
-    ".DS_Store",
     "Thumbs.db",
     "desktop.ini",
     "*.tmp",
@@ -37,14 +37,6 @@ pub const DEFAULT_PATTERNS: &[&str] = &[
     "*~",
     "*.blend1",
     "*.psd~",
-    ".autosave/",
-    ".progest/",
-    // Project-level metadata sidecars. `<asset>.meta` is filtered at
-    // the reconciler layer (see `is_sidecar` in `core::reconcile`)
-    // because it's per-asset and pairs with the indexed file; the
-    // directory-scoped `.dirmeta.toml` has no asset to pair with so we
-    // drop it at scan time instead.
-    ".dirmeta.toml",
 ];
 
 /// Location of the user-editable ignore file, relative to the project root.
@@ -258,5 +250,29 @@ mod tests {
         assert!(ignored(&rules, "debug.log", false));
         assert!(ignored(&rules, "tmp", true));
         assert!(!ignored(&rules, "app.rs", false));
+    }
+
+    #[test]
+    fn defaults_ignore_arbitrary_dotfiles() {
+        let (_dir, fs) = setup();
+        let rules = IgnoreRules::load(&fs).unwrap();
+
+        assert!(ignored(&rules, ".env", false));
+        assert!(ignored(&rules, ".gitignore", false));
+        assert!(ignored(&rules, ".editorconfig", false));
+        assert!(ignored(&rules, "assets/.thumbs", true));
+        assert!(ignored(&rules, "deep/nested/.secret", false));
+    }
+
+    #[test]
+    fn user_negation_can_unignore_dotfile() {
+        let (_dir, fs) = setup();
+        let user_path = ProjectPath::new(".progest/ignore").unwrap();
+        fs.write_atomic(&user_path, b"!.env.example\n").unwrap();
+        let rules = IgnoreRules::load(&fs).unwrap();
+
+        assert!(!ignored(&rules, ".env.example", false));
+        assert!(ignored(&rules, ".env", false));
+        assert!(ignored(&rules, ".hidden", false));
     }
 }
