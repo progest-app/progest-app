@@ -1,13 +1,10 @@
 import * as React from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, RefreshCw, Settings, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-
-import { RefreshCw, Settings } from "lucide-react";
 
 import {
   IpcError,
   aiApplyRename,
-  aiGetConfig,
   aiSuggest,
   fileDeleteApply,
   fileDeletePreview,
@@ -33,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,58 +39,591 @@ import { cn } from "@/lib/utils";
 
 const NOTES_DEBOUNCE_MS = 600;
 
-/**
- * File-mode inspector. Renders the static fields the user used to see
- * in the result-detail dialog (path / kind / ext / file_id / violations
- * / custom fields) plus inline editors for tags and `[notes].body`.
- *
- * Mutations route through `tag_add` / `tag_remove` / `notes_write`,
- * and bump the project-wide `refreshTick` so FlatView and TreeView
- * pick up the new tag / notes state without manual refresh.
- *
- * Files that haven't been reconciled yet (no `file_id`) render the
- * read-only fields but disable the editors — there's nothing in the
- * index to attach the mutation to.
- */
 export type FileInspectorHandle = {
   hasPendingSuggestions: () => boolean;
 };
 
+// ── AI suggestion hook ─────────────────────────────────────────────
+
+type AiType = "naming" | "tags" | "notes";
+
+function useAiSuggestion(hit: RichSearchHit, type: AiType) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [suggestions, setSuggestions] = React.useState<AiSuggestionWire[]>([]);
+  const [includeNotes, setIncludeNotes] = React.useState(false);
+
+  const generate = React.useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setSuggestions([]);
+    try {
+      const resp = await aiSuggest(hit.path, type, type === "notes" && includeNotes);
+      setSuggestions(resp.suggestions);
+    } catch (e) {
+      setError(e instanceof IpcError ? e.raw : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [hit.path, type, includeNotes]);
+
+  React.useEffect(() => {
+    setSuggestions([]);
+    setError(null);
+  }, [hit.path]);
+
+  return { busy, error, suggestions, setSuggestions, generate, includeNotes, setIncludeNotes };
+}
+
+// ── Shared AI UI components ────────────────────────────────────────
+
+function AiButton(props: {
+  aiConfig: AiConfigResponse | null;
+  busy: boolean;
+  onGenerate: () => void;
+}) {
+  const { openSettings } = useSettings();
+  if (!props.aiConfig) return null;
+  if (!props.aiConfig.has_key) {
+    return (
+      <Button
+        size="icon-xs"
+        variant="ghost"
+        onClick={() => openSettings("ai")}
+        title="Configure AI"
+      >
+        <Settings className="size-3" />
+      </Button>
+    );
+  }
+  return (
+    <Button
+      size="icon-xs"
+      variant="ghost"
+      onClick={props.onGenerate}
+      disabled={props.busy}
+      title="AI suggest"
+    >
+      <Sparkles className="size-3" />
+    </Button>
+  );
+}
+
+function AiSuggestionsList(props: {
+  ai: ReturnType<typeof useAiSuggestion>;
+  renderAction: (s: AiSuggestionWire) => React.ReactNode;
+  notesCheckbox?: boolean;
+}) {
+  const { ai } = props;
+  return (
+    <>
+      {props.notesCheckbox ? (
+        <label className="flex items-center gap-1.5 text-muted-foreground">
+          <Checkbox
+            checked={ai.includeNotes}
+            onCheckedChange={(v) => ai.setIncludeNotes(v === true)}
+          />
+          Include existing notes
+        </label>
+      ) : null}
+      {ai.busy ? (
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <DotmSquare12 size={16} dotSize={2} animated />
+          Generating…
+        </div>
+      ) : null}
+      {ai.error ? <div className="text-destructive">{ai.error}</div> : null}
+      {ai.suggestions.length > 0 ? (
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-[0.625rem] text-muted-foreground">
+              {ai.suggestions.length} suggestion{ai.suggestions.length > 1 ? "s" : ""}
+            </span>
+            <Button size="xs" variant="ghost" onClick={() => void ai.generate()} disabled={ai.busy}>
+              <RefreshCw className="mr-1 size-3" />
+              Regenerate
+            </Button>
+          </div>
+          <ul className="grid gap-1">
+            {ai.suggestions.map((s) => (
+              <li key={s.value} className="rounded-md border bg-muted/30 px-2 py-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="break-words font-mono">{s.value}</span>
+                  {props.renderAction(s)}
+                </div>
+                {s.explanation ? (
+                  <div className="mt-0.5 text-muted-foreground">{s.explanation}</div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+// ── FileInspector ──────────────────────────────────────────────────
+
 export const FileInspector = React.forwardRef<
   FileInspectorHandle,
-  { hit: RichSearchHit; onDeleted?: (() => void) | undefined }
+  {
+    hit: RichSearchHit;
+    onDeleted?: (() => void) | undefined;
+    onSelectionUpdate?: ((hit: RichSearchHit) => void) | undefined;
+  }
 >(function FileInspector(props, ref) {
-  const { hit, onDeleted } = props;
-  const isIndexed = hit.file_id.length > 0;
+  const { hit, onDeleted, onSelectionUpdate } = props;
+  const { bumpRefresh } = useProject();
+  const { aiConfig } = useSettings();
+  const [localHit, setLocalHit] = React.useState(hit);
+  React.useEffect(() => {
+    setLocalHit(hit);
+  }, [hit]);
+
+  const isIndexed = localHit.file_id.length > 0;
   const pendingRef = React.useRef(false);
+  const [notesVersion, setNotesVersion] = React.useState(0);
+
+  const namingAi = useAiSuggestion(localHit, "naming");
+  const tagsAi = useAiSuggestion(localHit, "tags");
+  const notesAi = useAiSuggestion(localHit, "notes");
+
+  React.useEffect(() => {
+    pendingRef.current =
+      namingAi.suggestions.length > 0 ||
+      tagsAi.suggestions.length > 0 ||
+      notesAi.suggestions.length > 0;
+  }, [namingAi.suggestions, tagsAi.suggestions, notesAi.suggestions]);
 
   React.useImperativeHandle(ref, () => ({
     hasPendingSuggestions: () => pendingRef.current,
   }));
 
+  const handleApplyRename = React.useCallback(
+    async (newName: string) => {
+      try {
+        const result = await aiApplyRename(localHit.path, newName);
+        namingAi.setSuggestions([]);
+        const newHit: RichSearchHit = {
+          ...localHit,
+          path: result.new_path,
+          name: result.new_path.split("/").pop() ?? null,
+        };
+        setLocalHit(newHit);
+        onSelectionUpdate?.(newHit);
+        bumpRefresh();
+        toast.success(`Renamed to ${result.new_path.split("/").pop()}`);
+      } catch (e) {
+        toast.error(e instanceof IpcError ? e.raw : String(e));
+      }
+    },
+    [localHit, onSelectionUpdate, bumpRefresh, namingAi],
+  );
+
+  const handleApplyTag = React.useCallback(
+    async (tag: string) => {
+      try {
+        await tagAdd(localHit.file_id, tag);
+        tagsAi.setSuggestions((prev) => prev.filter((s) => s.value !== tag));
+        setLocalHit((prev) => ({
+          ...prev,
+          tags: [...prev.tags, tag].toSorted((a, b) => a.localeCompare(b)),
+        }));
+        bumpRefresh();
+        toast.success(`Tag "${tag}" added`);
+      } catch (e) {
+        toast.error(e instanceof IpcError ? e.raw : String(e));
+      }
+    },
+    [localHit.file_id, bumpRefresh, tagsAi],
+  );
+
+  const handleApplyNotes = React.useCallback(
+    async (notes: string) => {
+      try {
+        await notesWrite(localHit.path, notes);
+        notesAi.setSuggestions([]);
+        setNotesVersion((n) => n + 1);
+        bumpRefresh();
+        toast.success("Notes updated");
+      } catch (e) {
+        toast.error(e instanceof IpcError ? e.raw : String(e));
+      }
+    },
+    [localHit.path, bumpRefresh, notesAi],
+  );
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr] overflow-hidden">
       <header className="border-b px-3 py-2">
         <div className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">File</div>
-        <div className="break-all font-mono text-xs/relaxed">{hit.path}</div>
+        <div className="break-all font-mono text-xs/relaxed">{localHit.path}</div>
       </header>
       <div className="grid auto-rows-min gap-3 overflow-y-auto px-3 py-3 text-xs">
-        <FileSummary hit={hit} />
-        <TagsEditor hit={hit} disabled={!isIndexed} />
-        <NotesEditor hit={hit} disabled={!isIndexed} />
-        <CustomFieldsBlock hit={hit} />
-        {isIndexed ? <AiSuggestionsSection hit={hit} pendingRef={pendingRef} /> : null}
+        <NameSection
+          hit={localHit}
+          aiConfig={isIndexed ? aiConfig : null}
+          ai={namingAi}
+          onApplyRename={handleApplyRename}
+        />
+        <StaticFields hit={localHit} />
+        <TagsSection
+          hit={localHit}
+          disabled={!isIndexed}
+          aiConfig={isIndexed ? aiConfig : null}
+          ai={tagsAi}
+          onApplyTag={handleApplyTag}
+        />
+        <NotesSection
+          hit={localHit}
+          disabled={!isIndexed}
+          reloadKey={notesVersion}
+          aiConfig={isIndexed ? aiConfig : null}
+          ai={notesAi}
+          onApplyNotes={handleApplyNotes}
+        />
+        <CustomFieldsBlock hit={localHit} />
         {!isIndexed ? (
           <div className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-warning">
             This file isn&apos;t indexed yet — run <code>progest scan</code> (or wait for the next
             reconcile) before editing tags or notes.
           </div>
         ) : null}
-        {isIndexed ? <DeleteSection path={hit.path} onDeleted={onDeleted} /> : null}
+        {isIndexed ? <DeleteSection path={localHit.path} onDeleted={onDeleted} /> : null}
       </div>
     </div>
   );
 });
+
+// ── Name section ───────────────────────────────────────────────────
+
+function NameSection(props: {
+  hit: RichSearchHit;
+  aiConfig: AiConfigResponse | null;
+  ai: ReturnType<typeof useAiSuggestion>;
+  onApplyRename: (newName: string) => void;
+}) {
+  const name = props.hit.name ?? props.hit.path.split("/").pop() ?? "";
+  return (
+    <section className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <Label className="text-muted-foreground">Name</Label>
+        <AiButton
+          aiConfig={props.aiConfig}
+          busy={props.ai.busy}
+          onGenerate={() => void props.ai.generate()}
+        />
+      </div>
+      <div className="min-w-0 break-words font-mono">{name}</div>
+      <AiSuggestionsList
+        ai={props.ai}
+        renderAction={(s) => (
+          <Button size="xs" variant="ghost" onClick={() => void props.onApplyRename(s.value)}>
+            Rename
+          </Button>
+        )}
+      />
+    </section>
+  );
+}
+
+// ── Static fields (kind / ext / violations / file_id) ──────────────
+
+function StaticFields(props: { hit: RichSearchHit }) {
+  const { hit } = props;
+  return (
+    <div className="grid gap-1.5">
+      <Row label="Kind" value={hit.kind} />
+      {hit.ext ? <Row label="Extension" value={hit.ext} mono /> : null}
+      <div className="grid grid-cols-[5.5rem_1fr] items-start gap-2">
+        <span className="text-muted-foreground">Violations</span>
+        {hit.violations.naming + hit.violations.placement + hit.violations.sequence > 0 ? (
+          <ViolationBadges counts={hit.violations} className="" />
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </div>
+      {hit.file_id ? (
+        <Row label="File ID" value={hit.file_id} mono className="text-muted-foreground" />
+      ) : null}
+    </div>
+  );
+}
+
+function Row(props: { label: string; value: string; mono?: boolean; className?: string }) {
+  return (
+    <div className="grid grid-cols-[5.5rem_1fr] items-start gap-2">
+      <span className="text-muted-foreground">{props.label}</span>
+      <span className={cn("min-w-0 break-words", props.mono ? "font-mono" : null, props.className)}>
+        {props.value}
+      </span>
+    </div>
+  );
+}
+
+// ── Tags section ───────────────────────────────────────────────────
+
+function TagsSection(props: {
+  hit: RichSearchHit;
+  disabled: boolean;
+  aiConfig: AiConfigResponse | null;
+  ai: ReturnType<typeof useAiSuggestion>;
+  onApplyTag: (tag: string) => void;
+}) {
+  const { hit, disabled } = props;
+  const { bumpRefresh } = useProject();
+  const [tags, setTags] = React.useState<string[]>(hit.tags);
+  const [draft, setDraft] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const pendingAdd = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    setTags(hit.tags);
+    setDraft("");
+    setError(null);
+    pendingAdd.current = null;
+  }, [hit.file_id, hit.path, hit.tags]);
+
+  const submitDraft = async () => {
+    const tag = draft.trim();
+    if (tag.length === 0 || tags.includes(tag) || pendingAdd.current === tag || disabled) {
+      if (tag.length === 0 || tags.includes(tag)) setDraft("");
+      return;
+    }
+    pendingAdd.current = tag;
+    setDraft("");
+    setBusy(true);
+    setError(null);
+    try {
+      await tagAdd(hit.file_id, tag);
+      setTags((prev) => {
+        if (prev.includes(tag)) return prev;
+        const next = [...prev, tag];
+        next.sort((a, b) => a.localeCompare(b));
+        return next;
+      });
+      bumpRefresh();
+    } catch (e) {
+      setError(e instanceof IpcError ? e.raw : String(e));
+    } finally {
+      pendingAdd.current = null;
+      setBusy(false);
+    }
+  };
+
+  const removeTag = async (tag: string) => {
+    if (disabled) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await tagRemove(hit.file_id, tag);
+      setTags((prev) => prev.filter((t) => t !== tag));
+      bumpRefresh();
+    } catch (e) {
+      setError(e instanceof IpcError ? e.raw : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void submitDraft();
+    } else if (e.key === "Backspace" && draft.length === 0 && tags.length > 0) {
+      e.preventDefault();
+      void removeTag(tags[tags.length - 1]!);
+    }
+  };
+
+  return (
+    <section className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <Label className="text-muted-foreground">Tags</Label>
+        <AiButton
+          aiConfig={props.aiConfig}
+          busy={props.ai.busy}
+          onGenerate={() => void props.ai.generate()}
+        />
+      </div>
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-1 rounded-md border bg-input/20 px-2 py-1.5 dark:bg-input/30",
+          disabled ? "opacity-50" : null,
+        )}
+      >
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 font-mono"
+          >
+            #{tag}
+            <button
+              type="button"
+              aria-label={`Remove tag ${tag}`}
+              onClick={() => void removeTag(tag)}
+              disabled={disabled || busy}
+              className="rounded-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={() => void submitDraft()}
+          disabled={disabled || busy}
+          placeholder={tags.length === 0 ? "add tag…" : ""}
+          className="h-6 min-w-24 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => void submitDraft()}
+          disabled={disabled || busy || draft.trim().length === 0}
+          aria-label="Add tag"
+        >
+          <Plus />
+        </Button>
+      </div>
+      {error ? <div className="text-destructive">{error}</div> : null}
+      <AiSuggestionsList
+        ai={props.ai}
+        renderAction={(s) => (
+          <Button size="xs" variant="ghost" onClick={() => void props.onApplyTag(s.value)}>
+            Apply
+          </Button>
+        )}
+      />
+    </section>
+  );
+}
+
+// ── Notes section ──────────────────────────────────────────────────
+
+function NotesSection(props: {
+  hit: RichSearchHit;
+  disabled: boolean;
+  reloadKey?: number;
+  aiConfig: AiConfigResponse | null;
+  ai: ReturnType<typeof useAiSuggestion>;
+  onApplyNotes: (notes: string) => void;
+}) {
+  const { hit, disabled } = props;
+  const { bumpRefresh } = useProject();
+  const [body, setBody] = React.useState("");
+  const persisted = React.useRef("");
+  const [loading, setLoading] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!hit.path) return;
+    setLoading(true);
+    notesRead(hit.path)
+      .then((res) => {
+        if (cancelled) return;
+        setBody(res.body);
+        persisted.current = res.body;
+        setError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof IpcError ? e.raw : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hit.path, props.reloadKey]);
+
+  React.useEffect(() => {
+    if (disabled) return;
+    if (body === persisted.current) return;
+    const handle = setTimeout(() => {
+      setSaving(true);
+      setError(null);
+      notesWrite(hit.path, body)
+        .then(() => {
+          persisted.current = body;
+          bumpRefresh();
+        })
+        .catch((e) => {
+          setError(e instanceof IpcError ? e.raw : String(e));
+        })
+        .finally(() => {
+          setSaving(false);
+        });
+    }, NOTES_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [body, hit.path, disabled, bumpRefresh]);
+
+  return (
+    <section className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <Label className="text-muted-foreground">Notes</Label>
+        <div className="flex items-center gap-1">
+          <span className="text-[0.625rem] text-muted-foreground">
+            {loading ? "loading…" : saving ? "saving…" : null}
+          </span>
+          <AiButton
+            aiConfig={props.aiConfig}
+            busy={props.ai.busy}
+            onGenerate={() => void props.ai.generate()}
+          />
+        </div>
+      </div>
+      <Textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        disabled={disabled || loading}
+        placeholder={disabled ? "" : "Free-form notes for this file…"}
+        rows={6}
+        className="resize-y"
+      />
+      {error ? <div className="text-destructive">{error}</div> : null}
+      <AiSuggestionsList
+        ai={props.ai}
+        notesCheckbox
+        renderAction={(s) => (
+          <Button size="xs" variant="ghost" onClick={() => void props.onApplyNotes(s.value)}>
+            Apply
+          </Button>
+        )}
+      />
+    </section>
+  );
+}
+
+// ── Custom fields ──────────────────────────────────────────────────
+
+function CustomFieldsBlock(props: { hit: RichSearchHit }) {
+  const fields = props.hit.custom_fields;
+  if (fields.length === 0) return null;
+  return (
+    <section className="grid gap-1.5">
+      <Label className="text-muted-foreground">Custom fields</Label>
+      <ul className="grid gap-0.5 rounded-md border bg-muted/30 px-2 py-1.5 font-mono">
+        {fields.map((f) => (
+          <li key={f.key} className="grid grid-cols-[max-content_1fr] gap-2">
+            <span className="text-muted-foreground">{f.key}</span>
+            <span className="break-words">{String(f.value)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// ── Delete section ─────────────────────────────────────────────────
 
 function DeleteSection(props: { path: string; onDeleted?: (() => void) | undefined }) {
   const { bumpRefresh } = useProject();
@@ -177,465 +708,5 @@ function DeleteSection(props: { path: string; onDeleted?: (() => void) | undefin
         </DialogContent>
       </Dialog>
     </>
-  );
-}
-
-function FileSummary(props: { hit: RichSearchHit }) {
-  const { hit } = props;
-  return (
-    <div className="grid gap-1.5">
-      <Row label="Name" value={hit.name ?? hit.path.split("/").pop() ?? ""} mono />
-      <Row label="Kind" value={hit.kind} />
-      {hit.ext ? <Row label="Extension" value={hit.ext} mono /> : null}
-      <div className="grid grid-cols-[5.5rem_1fr] items-start gap-2">
-        <span className="text-muted-foreground">Violations</span>
-        {hit.violations.naming + hit.violations.placement + hit.violations.sequence > 0 ? (
-          <ViolationBadges counts={hit.violations} className="" />
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </div>
-      {hit.file_id ? (
-        <Row label="File ID" value={hit.file_id} mono className="text-muted-foreground" />
-      ) : null}
-    </div>
-  );
-}
-
-function Row(props: { label: string; value: string; mono?: boolean; className?: string }) {
-  return (
-    <div className="grid grid-cols-[5.5rem_1fr] items-start gap-2">
-      <span className="text-muted-foreground">{props.label}</span>
-      <span className={cn("min-w-0 break-words", props.mono ? "font-mono" : null, props.className)}>
-        {props.value}
-      </span>
-    </div>
-  );
-}
-
-function TagsEditor(props: { hit: RichSearchHit; disabled: boolean }) {
-  const { hit, disabled } = props;
-  const { bumpRefresh } = useProject();
-  const [tags, setTags] = React.useState<string[]>(hit.tags);
-  const [draft, setDraft] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  // Tracks the tag string for any in-flight `tagAdd` call. Prevents
-  // double-fire when Enter and onBlur land back-to-back (the input
-  // can blur right after Enter, queueing a second submission with
-  // the same draft before React commits the first `setDraft("")`).
-  const pendingAdd = React.useRef<string | null>(null);
-
-  // Reset to the upstream value whenever the inspector switches files.
-  React.useEffect(() => {
-    setTags(hit.tags);
-    setDraft("");
-    setError(null);
-    pendingAdd.current = null;
-  }, [hit.file_id, hit.path, hit.tags]);
-
-  const submitDraft = async () => {
-    const tag = draft.trim();
-    // Early-out paths that don't need the IPC round-trip. Critically,
-    // `pendingAdd.current === tag` guards against the Enter→blur race.
-    if (tag.length === 0 || tags.includes(tag) || pendingAdd.current === tag || disabled) {
-      if (tag.length === 0 || tags.includes(tag)) setDraft("");
-      return;
-    }
-    pendingAdd.current = tag;
-    setDraft("");
-    setBusy(true);
-    setError(null);
-    try {
-      await tagAdd(hit.file_id, tag);
-      // Dedupe at insertion time too — the backend is idempotent, but
-      // the optimistic update would otherwise let two concurrent
-      // submissions of the same tag append twice.
-      setTags((prev) => {
-        if (prev.includes(tag)) return prev;
-        const next = [...prev, tag];
-        next.sort((a, b) => a.localeCompare(b));
-        return next;
-      });
-      bumpRefresh();
-    } catch (e) {
-      setError(e instanceof IpcError ? e.raw : String(e));
-    } finally {
-      pendingAdd.current = null;
-      setBusy(false);
-    }
-  };
-
-  const removeTag = async (tag: string) => {
-    if (disabled) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await tagRemove(hit.file_id, tag);
-      setTags((prev) => prev.filter((t) => t !== tag));
-      bumpRefresh();
-    } catch (e) {
-      setError(e instanceof IpcError ? e.raw : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      void submitDraft();
-    } else if (e.key === "Backspace" && draft.length === 0 && tags.length > 0) {
-      e.preventDefault();
-      void removeTag(tags[tags.length - 1]!);
-    }
-  };
-
-  return (
-    <section className="grid gap-1.5">
-      <Label className="text-muted-foreground">Tags</Label>
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-1 rounded-md border bg-input/20 px-2 py-1.5 dark:bg-input/30",
-          disabled ? "opacity-50" : null,
-        )}
-      >
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 font-mono"
-          >
-            #{tag}
-            <button
-              type="button"
-              aria-label={`Remove tag ${tag}`}
-              onClick={() => void removeTag(tag)}
-              disabled={disabled || busy}
-              className="rounded-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
-            >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={() => void submitDraft()}
-          disabled={disabled || busy}
-          placeholder={tags.length === 0 ? "add tag…" : ""}
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => void submitDraft()}
-          disabled={disabled || busy || draft.trim().length === 0}
-          aria-label="Add tag"
-        >
-          <Plus />
-        </Button>
-      </div>
-      {error ? <div className="text-destructive">{error}</div> : null}
-    </section>
-  );
-}
-
-function NotesEditor(props: { hit: RichSearchHit; disabled: boolean }) {
-  const { hit, disabled } = props;
-  const { bumpRefresh } = useProject();
-  const [body, setBody] = React.useState("");
-  // Track the last persisted body so we don't fire a write for changes
-  // that just came back from the server.
-  const persisted = React.useRef("");
-  const [loading, setLoading] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  // Load the sidecar's current body whenever the selected file
-  // changes. `notes_read` returns `body=""` for files without a
-  // sidecar yet, so the textarea starts empty.
-  React.useEffect(() => {
-    let cancelled = false;
-    if (!hit.path) return;
-    setLoading(true);
-    notesRead(hit.path)
-      .then((res) => {
-        if (cancelled) return;
-        setBody(res.body);
-        persisted.current = res.body;
-        setError(null);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(e instanceof IpcError ? e.raw : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hit.path]);
-
-  // Debounced save: cheap to keep the textarea responsive without
-  // hammering the sidecar atomic-write path on every keystroke.
-  React.useEffect(() => {
-    if (disabled) return;
-    if (body === persisted.current) return;
-    const handle = setTimeout(() => {
-      setSaving(true);
-      setError(null);
-      notesWrite(hit.path, body)
-        .then(() => {
-          persisted.current = body;
-          bumpRefresh();
-        })
-        .catch((e) => {
-          setError(e instanceof IpcError ? e.raw : String(e));
-        })
-        .finally(() => {
-          setSaving(false);
-        });
-    }, NOTES_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [body, hit.path, disabled, bumpRefresh]);
-
-  return (
-    <section className="grid gap-1.5">
-      <div className="flex items-center justify-between">
-        <Label className="text-muted-foreground">Notes</Label>
-        <span className="text-[0.625rem] text-muted-foreground">
-          {loading ? "loading…" : saving ? "saving…" : null}
-        </span>
-      </div>
-      <Textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        disabled={disabled || loading}
-        placeholder={disabled ? "" : "Free-form notes for this file…"}
-        rows={6}
-        className="resize-y"
-      />
-      {error ? <div className="text-destructive">{error}</div> : null}
-    </section>
-  );
-}
-
-function CustomFieldsBlock(props: { hit: RichSearchHit }) {
-  const fields = props.hit.custom_fields;
-  if (fields.length === 0) return null;
-  return (
-    <section className="grid gap-1.5">
-      <Label className="text-muted-foreground">Custom fields</Label>
-      <ul className="grid gap-0.5 rounded-md border bg-muted/30 px-2 py-1.5 font-mono">
-        {fields.map((f) => (
-          <li key={f.key} className="grid grid-cols-[max-content_1fr] gap-2">
-            <span className="text-muted-foreground">{f.key}</span>
-            <span className="break-words">{String(f.value)}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-// ── AI Suggestions ─────────────────────────────────────────────────
-
-const AI_TYPES = ["naming", "tags", "notes", "placement"] as const;
-type AiType = (typeof AI_TYPES)[number];
-
-function AiSuggestionsSection(props: {
-  hit: RichSearchHit;
-  pendingRef: React.MutableRefObject<boolean>;
-}) {
-  const { hit, pendingRef } = props;
-  const { bumpRefresh } = useProject();
-  const { openSettings } = useSettings();
-  const [config, setConfig] = React.useState<AiConfigResponse | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [suggestions, setSuggestions] = React.useState<AiSuggestionWire[]>([]);
-  const [activeType, setActiveType] = React.useState<AiType>("naming");
-  const [includeNotes, setIncludeNotes] = React.useState(false);
-
-  React.useEffect(() => {
-    pendingRef.current = suggestions.length > 0;
-  }, [suggestions, pendingRef]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    aiGetConfig()
-      .then((c) => {
-        if (!cancelled) setConfig(c);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    setSuggestions([]);
-    setError(null);
-  }, [hit.path]);
-
-  const handleSuggest = async (type_: AiType) => {
-    setActiveType(type_);
-    setBusy(true);
-    setError(null);
-    setSuggestions([]);
-    try {
-      const resp = await aiSuggest(hit.path, type_, includeNotes);
-      setSuggestions(resp.suggestions);
-    } catch (e) {
-      setError(e instanceof IpcError ? e.raw : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleRegenerate = () => void handleSuggest(activeType);
-
-  const handleApplyTag = async (tag: string) => {
-    try {
-      await tagAdd(hit.file_id, tag);
-      setSuggestions((prev) => prev.filter((s) => s.value !== tag));
-      bumpRefresh();
-      toast.success(`Tag "${tag}" added`);
-    } catch (e) {
-      toast.error(e instanceof IpcError ? e.raw : String(e));
-    }
-  };
-
-  const handleApplyRename = async (newName: string) => {
-    try {
-      const result = await aiApplyRename(hit.path, newName);
-      setSuggestions([]);
-      bumpRefresh();
-      toast.success(`Renamed to ${result.new_path.split("/").pop()}`);
-    } catch (e) {
-      toast.error(e instanceof IpcError ? e.raw : String(e));
-    }
-  };
-
-  const handleApplyNotes = async (notes: string) => {
-    try {
-      await notesWrite(hit.path, notes);
-      setSuggestions([]);
-      bumpRefresh();
-      toast.success("Notes updated");
-    } catch (e) {
-      toast.error(e instanceof IpcError ? e.raw : String(e));
-    }
-  };
-
-  if (!config) return null;
-
-  if (!config.has_key) {
-    return (
-      <section className="grid gap-1.5">
-        <Label className="text-muted-foreground">AI suggestions</Label>
-        <Button size="xs" variant="outline" onClick={() => openSettings("ai")}>
-          <Settings className="mr-1 size-3" />
-          Configure AI
-        </Button>
-      </section>
-    );
-  }
-
-  return (
-    <section className="grid gap-1.5">
-      <div className="flex items-center justify-between">
-        <Label className="text-muted-foreground">AI suggestions</Label>
-        <button
-          type="button"
-          className="text-[0.625rem] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          onClick={() => openSettings("ai")}
-        >
-          {config.provider}/{config.model.split("-").slice(0, 2).join("-")}
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {AI_TYPES.map((t) => (
-          <Button
-            key={t}
-            size="xs"
-            variant={activeType === t && suggestions.length > 0 ? "default" : "outline"}
-            onClick={() => void handleSuggest(t)}
-            disabled={busy}
-          >
-            {t}
-          </Button>
-        ))}
-      </div>
-      {activeType === "notes" ? (
-        <label className="flex items-center gap-1.5 text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={includeNotes}
-            onChange={(e) => setIncludeNotes(e.target.checked)}
-            className="accent-primary"
-          />
-          Include existing notes in AI context
-        </label>
-      ) : null}
-      {busy ? (
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <DotmSquare12 size={16} dotSize={2} animated />
-          Generating…
-        </div>
-      ) : null}
-      {error ? <div className="text-destructive">{error}</div> : null}
-      {suggestions.length > 0 ? (
-        <>
-          <div className="flex items-center justify-between">
-            <span className="text-[0.625rem] text-muted-foreground">
-              {suggestions.length} suggestion{suggestions.length > 1 ? "s" : ""}
-            </span>
-            <Button size="xs" variant="ghost" onClick={handleRegenerate} disabled={busy}>
-              <RefreshCw className="mr-1 size-3" />
-              Regenerate
-            </Button>
-          </div>
-          <ul className="grid gap-1">
-            {suggestions.map((s, i) => (
-              <li key={i} className="rounded-md border bg-muted/30 px-2 py-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="break-words font-mono">{s.value}</span>
-                  {activeType === "naming" ? (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => void handleApplyRename(s.value)}
-                    >
-                      Rename
-                    </Button>
-                  ) : null}
-                  {activeType === "tags" ? (
-                    <Button size="xs" variant="ghost" onClick={() => void handleApplyTag(s.value)}>
-                      Apply
-                    </Button>
-                  ) : null}
-                  {activeType === "notes" ? (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => void handleApplyNotes(s.value)}
-                    >
-                      Apply
-                    </Button>
-                  ) : null}
-                </div>
-                {s.explanation ? (
-                  <div className="mt-0.5 text-muted-foreground">{s.explanation}</div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-    </section>
   );
 }

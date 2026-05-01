@@ -10,7 +10,7 @@
 
 ## 0. 進捗スナップショット
 
-最終更新: 2026-05-01（**M4 進行中**。import + thumbnail + template + D&D/UI + delete + toast + Windows 対応完了。次は AI）
+最終更新: 2026-05-01（**M4 完了**。import + thumbnail + template + D&D/UI + delete + toast + Windows 対応 + AI + polish 全完了）
 
 - **M0 Skeleton**: 完了
 - **M1 Core data layer**: 完了 — `core::fs` / `core::identity` / `core::meta` / `core::index` / `core::reconcile` / `core::watch` / `core::project` + CLI `init`/`scan`/`doctor` + 10k-file incremental scan ベンチ（実測 ~82 ms、5 s gate の 60 倍下回り）
@@ -81,8 +81,8 @@
     - `fs::placeholder` — OneDrive placeholder 検出 + scanner skip
     - platform-aware titlebar padding + keyboard shortcut labels（`⌘K` / `Ctrl+K`）
     - CI: `windows-latest` test matrix + `build-windows` job + NSIS installer config
-  - [ ] `core::ai` + UI（BYOK + 命名/タグ/notes/配置先提案）
-  - [ ] M4 polish + docs（doctor staging cleanup + undo wiring）
+  - [x] `core::ai` + UI — BYOK クライアント（Anthropic / OpenAI）+ keychain 連携 + 命名/タグ/notes/配置先提案 + Settings dialog + per-section AI buttons（feat/m4-core-ai、PR #77 + feat/m4-ai-settings-polish、PR #78）
+  - [x] M4 polish — AI config キャッシュ（SettingsContext 集約）+ apply 後のインスペクタ即時反映（localHit state）+ per-section AI ボタン UX + DotmSquare5 スピナー統一 + dotfile 除外（`.*` DEFAULT_PATTERNS）（feat/m4-polish）
 
 後続 PR に切り出した既完了モジュールの残タスク:
 - `core::index`: ~~FTS5 virtual table~~ (**M3 完了**) / ~~`custom_fields` テーブル~~ (**M3 完了**)

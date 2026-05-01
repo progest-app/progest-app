@@ -531,7 +531,7 @@ function getMatrix5Layout(
 }
 
 function resolveDmxBoxOuterDim(
-  options: { boxSize?: number; minSize?: number } | null | undefined,
+  options: { boxSize?: number | undefined; minSize?: number | undefined } | null | undefined,
 ): { outerDim: number; useWrapper: boolean } {
   const b = options?.boxSize;
   const hasBox = b != null && b > 0 && Number.isFinite(b);
@@ -589,10 +589,7 @@ export function DotMatrixBase({
   const safeSpeed = speed > 0 ? speed : 1;
   const speedScale = 1 / safeSpeed;
   const { gap, matrixSpan } = getMatrix5Layout(size, dotSize, cellPadding);
-  const { outerDim, useWrapper } = resolveDmxBoxOuterDim({
-    boxSize: boxSize ?? undefined,
-    minSize: minSize ?? undefined,
-  } as { boxSize?: number; minSize?: number });
+  const { outerDim, useWrapper } = resolveDmxBoxOuterDim({ boxSize, minSize });
   const scale = useWrapper && matrixSpan > 0 ? outerDim / matrixSpan : 1;
   const center = Math.floor(MATRIX_SIZE / 2);
   const ob = clamp01Dmx(opacityBase);
