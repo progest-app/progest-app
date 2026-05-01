@@ -20,6 +20,7 @@ import {
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
 import { DotmSquare1 } from "@/components/ui/dotm-square-1";
+import { DotmSquare12 } from "@/components/ui/dotm-square-12";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -586,7 +587,7 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
       ) : null}
       {busy ? (
         <div className="flex items-center gap-1.5 text-muted-foreground">
-          <DotmSquare1 size={16} dotSize={2} animated />
+          <DotmSquare12 size={16} dotSize={2} animated />
           Generating…
         </div>
       ) : null}
