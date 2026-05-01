@@ -36,8 +36,16 @@ pub fn build_menu(app: &AppHandle<Wry>) -> tauri::Result<Menu<Wry>> {
         .build()?;
 
     let edit_menu = SubmenuBuilder::new(app, "Edit")
-        .undo()
-        .redo()
+        .item(
+            &MenuItemBuilder::with_id("menu:undo", "Undo")
+                .accelerator("CmdOrCtrl+Z")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("menu:redo", "Redo")
+                .accelerator("CmdOrCtrl+Shift+Z")
+                .build(app)?,
+        )
         .separator()
         .cut()
         .copy()

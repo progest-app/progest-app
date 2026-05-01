@@ -38,7 +38,9 @@ import { ProjectProvider, useProject } from "@/lib/project-context";
 import { SettingsProvider, useSettings } from "@/lib/settings-context";
 import { ThemeProvider } from "next-themes";
 import type { DirEntry, RichSearchHit } from "@/lib/ipc";
+import { historyUndo, historyRedo, IpcError } from "@/lib/ipc";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useMenuEvents } from "@/lib/use-menu-events";
@@ -185,6 +187,64 @@ function Shell() {
 
   const selectedDir = selection?.kind === "dir" ? selection.path : "";
 
+  const doUndo = React.useCallback(async () => {
+    try {
+      const entries = await historyUndo();
+      if (entries.length === 0) {
+        toast.info("Nothing to undo");
+        return;
+      }
+      const first = entries[0]!;
+      toast.success(
+        entries.length === 1
+          ? `Undo: ${first.summary}`
+          : `Undo: ${entries.length} operations (${first.op_kind})`,
+      );
+      bumpRefresh();
+      setSelection(null);
+    } catch (e) {
+      if (e instanceof IpcError && e.isNoProject) return;
+      toast.error(`Undo failed: ${e instanceof IpcError ? e.raw : String(e)}`);
+    }
+  }, [bumpRefresh]);
+
+  const doRedo = React.useCallback(async () => {
+    try {
+      const entries = await historyRedo();
+      if (entries.length === 0) {
+        toast.info("Nothing to redo");
+        return;
+      }
+      const first = entries[0]!;
+      toast.success(
+        entries.length === 1
+          ? `Redo: ${first.summary}`
+          : `Redo: ${entries.length} operations (${first.op_kind})`,
+      );
+      bumpRefresh();
+      setSelection(null);
+    } catch (e) {
+      if (e instanceof IpcError && e.isNoProject) return;
+      toast.error(`Redo failed: ${e instanceof IpcError ? e.raw : String(e)}`);
+    }
+  }, [bumpRefresh]);
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        void doRedo();
+      } else {
+        void doUndo();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doUndo, doRedo]);
+
   useMenuEvents({
     "menu:new-project": () => openInitDialog("new"),
     "menu:open-project": () => void openPicker(),
@@ -200,6 +260,8 @@ function Shell() {
     "menu:palette": () => window.dispatchEvent(new CustomEvent("progest:toggle-palette")),
     "menu:rescan": () => bumpRefresh(),
     "menu:import": () => void pickAndImport(),
+    "menu:undo": () => void doUndo(),
+    "menu:redo": () => void doRedo(),
   });
 
   const pickAndImport = React.useCallback(async () => {
@@ -246,6 +308,8 @@ function Shell() {
       window.dispatchEvent(new CustomEvent("progest:create", { detail: { kind: "dir" } })),
     onImport: () => void pickAndImport(),
     onSettings: () => settings.openSettings(),
+    onUndo: () => void doUndo(),
+    onRedo: () => void doRedo(),
     onToggleTree: () => togglePanel("tree"),
     onToggleFlat: () => togglePanel("flat"),
     onToggleInspector: () => togglePanel("inspector"),
