@@ -42,10 +42,10 @@ impl ProjectContext {
             .map_err(|e| format!("opening index `{}`: {e}", root.index_db().display()))?;
         let history = HistoryStore::open(&root.history_db())
             .map_err(|e| format!("opening history `{}`: {e}", root.history_db().display()))?;
-        if let Ok(text) = std::fs::read_to_string(root.project_toml()) {
-            if let Ok(doc) = ProjectDocument::from_toml_str(&text) {
-                history.set_retention(doc.history.retention);
-            }
+        if let Ok(text) = std::fs::read_to_string(root.project_toml())
+            && let Ok(doc) = ProjectDocument::from_toml_str(&text)
+        {
+            history.set_retention(doc.history.retention);
         }
         Ok(Self {
             root,
