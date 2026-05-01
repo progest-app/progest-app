@@ -605,6 +605,19 @@ export async function aiSuggest(
   }
 }
 
+export type AiRenameResult = {
+  old_path: string;
+  new_path: string;
+};
+
+export async function aiApplyRename(path: string, newName: string): Promise<AiRenameResult> {
+  try {
+    return await invoke<AiRenameResult>("ai_apply_rename", { path, newName });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 export async function aiSetKey(provider: string, key: string): Promise<void> {
   try {
     await invoke<void>("ai_set_key", { provider, key });

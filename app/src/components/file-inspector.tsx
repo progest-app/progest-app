@@ -6,6 +6,7 @@ import { RefreshCw, Settings } from "lucide-react";
 
 import {
   IpcError,
+  aiApplyRename,
   aiGetConfig,
   aiSuggest,
   fileDeleteApply,
@@ -508,6 +509,17 @@ function AiSuggestionsSection(props: {
     }
   };
 
+  const handleApplyRename = async (newName: string) => {
+    try {
+      const result = await aiApplyRename(hit.path, newName);
+      setSuggestions([]);
+      bumpRefresh();
+      toast.success(`Renamed to ${result.new_path.split("/").pop()}`);
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    }
+  };
+
   const handleApplyNotes = async (notes: string) => {
     try {
       await notesWrite(hit.path, notes);
@@ -592,6 +604,15 @@ function AiSuggestionsSection(props: {
               <li key={i} className="rounded-md border bg-muted/30 px-2 py-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <span className="break-words font-mono">{s.value}</span>
+                  {activeType === "naming" ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => void handleApplyRename(s.value)}
+                    >
+                      Rename
+                    </Button>
+                  ) : null}
                   {activeType === "tags" ? (
                     <Button size="xs" variant="ghost" onClick={() => void handleApplyTag(s.value)}>
                       Apply

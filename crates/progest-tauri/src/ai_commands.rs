@@ -6,7 +6,9 @@ use progest_core::ai::{
 };
 use progest_core::fs::{ProjectPath, StdFileSystem};
 use progest_core::meta::StdMetaStore;
+use progest_core::naming::types::{NameCandidate, Segment};
 use progest_core::project::ProjectDocument;
+use progest_core::rename;
 
 use crate::state::AppState;
 
@@ -88,6 +90,67 @@ pub async fn ai_suggest(
             provider: response.provider.to_string(),
             elapsed_ms: response.elapsed_ms,
             suggestion_type: suggestion_type.clone(),
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiRenameResult {
+    pub old_path: String,
+    pub new_path: String,
+}
+
+#[tauri::command]
+pub async fn ai_apply_rename(
+    path: String,
+    new_name: String,
+    app: AppHandle,
+) -> Result<AiRenameResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+        let from = ProjectPath::new(&path).map_err(|e| format!("invalid path `{path}`: {e}"))?;
+
+        let (stem, ext) = match new_name.rsplit_once('.') {
+            Some((s, e)) => (s.to_string(), Some(e.to_string())),
+            None => (new_name.clone(), None),
+        };
+        let candidate = NameCandidate {
+            segments: vec![Segment::Literal(stem)],
+            ext,
+        };
+
+        let request = rename::RenameRequest::new(from.clone(), candidate);
+        let fs = &ctx.fs;
+        let preview = rename::build_preview(&[request], &progest_core::naming::FillMode::Skip, fs)
+            .map_err(|e| format!("rename preview: {e}"))?;
+
+        if !preview.is_clean() {
+            let conflicts: Vec<String> = preview
+                .conflicting_ops()
+                .map(|op| format!("{}: {:?}", op.from, op.conflicts))
+                .collect();
+            return Err(format!("rename conflicts: {}", conflicts.join("; ")));
+        }
+
+        let driver = rename::Rename::new_without_history(fs, &ctx.index);
+        let outcome = driver
+            .apply(&preview)
+            .map_err(|e| format!("rename apply: {e}"))?;
+
+        let new_path = outcome
+            .applied
+            .first()
+            .map(|op| op.to.as_str().to_string())
+            .unwrap_or_default();
+
+        Ok(AiRenameResult {
+            old_path: path,
+            new_path,
         })
     })
     .await

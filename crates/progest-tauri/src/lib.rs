@@ -89,6 +89,7 @@ pub fn run() {
             delete_commands::file_delete_preview,
             delete_commands::file_delete_apply,
             ai_commands::ai_suggest,
+            ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,
             ai_commands::ai_get_config,
             ai_commands::ai_set_config,
