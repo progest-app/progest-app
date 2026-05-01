@@ -1,8 +1,16 @@
 import * as React from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { ClipboardCopy, ExternalLink, FolderSearch, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { fileDeleteApply, fileDeletePreview, fsRename, type DeletePreview } from "@/lib/ipc";
+import {
+  fileDeleteApply,
+  fileDeletePreview,
+  fsAbsPath,
+  fsOpen,
+  fsRename,
+  fsReveal,
+  type DeletePreview,
+} from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
 import { DotmSquare1 } from "@/components/ui/dotm-square-1";
 import { Button } from "@/components/ui/button";
@@ -115,11 +123,33 @@ export function FileContextMenu(props: FileContextMenuProps) {
       <ContextMenu>
         <ContextMenuTrigger asChild>{props.children}</ContextMenuTrigger>
         <ContextMenuContent>
+          <div className="px-2 py-1 text-[0.625rem] font-medium text-muted-foreground truncate max-w-48">
+            {filename}
+          </div>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => void fsOpen(props.path)}>
+            <ExternalLink className="mr-2 size-3.5" />
+            Open
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => void fsReveal(props.path)}>
+            <FolderSearch className="mr-2 size-3.5" />
+            Reveal in Finder
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={async () => {
+              const abs = await fsAbsPath(props.path);
+              await navigator.clipboard.writeText(abs);
+              toast.success("Path copied");
+            }}
+          >
+            <ClipboardCopy className="mr-2 size-3.5" />
+            Copy Path
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onClick={openRename}>
             <Pencil className="mr-2 size-3.5" />
             Rename
           </ContextMenuItem>
-          <ContextMenuSeparator />
           <ContextMenuItem
             className="text-destructive focus:text-destructive"
             onClick={() => void openConfirm()}

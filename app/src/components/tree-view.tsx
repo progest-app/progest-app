@@ -2,8 +2,11 @@ import * as React from "react";
 import {
   ChevronRight,
   ChevronDown,
+  ClipboardCopy,
+  ExternalLink,
   Folder,
   FolderOpen,
+  FolderSearch,
   FileIcon,
   FilePlus,
   FolderPlus,
@@ -24,7 +27,10 @@ import {
   filesListDir,
   fsCreateDir,
   fsCreateFile,
+  fsAbsPath,
+  fsOpen,
   fsRename,
+  fsReveal,
   fileDeleteApply,
   dirDeleteApply,
   IpcError,
@@ -371,6 +377,10 @@ function DirNode(
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <div className="truncate max-w-48 px-2 py-1 text-[0.625rem] font-medium text-muted-foreground">
+            {name}
+          </div>
+          <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onStartCreate(path, "file")}>
             <FilePlus className="mr-2 size-3.5" />
             New File
@@ -378,6 +388,21 @@ function DirNode(
           <ContextMenuItem onClick={() => onStartCreate(path, "dir")}>
             <FolderPlus className="mr-2 size-3.5" />
             New Folder
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => void fsReveal(path || ".")}>
+            <FolderSearch className="mr-2 size-3.5" />
+            Reveal in Finder
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={async () => {
+              const abs = await fsAbsPath(path || ".");
+              await navigator.clipboard.writeText(abs);
+              toast.success("Path copied");
+            }}
+          >
+            <ClipboardCopy className="mr-2 size-3.5" />
+            Copy Path
           </ContextMenuItem>
           {path !== "" && (
             <>
@@ -502,6 +527,7 @@ function FileNode(props: {
           className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-accent"
           style={{ paddingLeft: indent + 16 }}
           onClick={() => onPick?.(entry)}
+          onDoubleClick={() => void fsOpen(entry.path)}
         >
           <FileIcon className="size-3.5 shrink-0 opacity-60" />
           {isRenaming ? (
@@ -523,11 +549,33 @@ function FileNode(props: {
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <div className="truncate max-w-48 px-2 py-1 text-[0.625rem] font-medium text-muted-foreground">
+          {entry.name}
+        </div>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => void fsOpen(entry.path)}>
+          <ExternalLink className="mr-2 size-3.5" />
+          Open
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => void fsReveal(entry.path)}>
+          <FolderSearch className="mr-2 size-3.5" />
+          Reveal in Finder
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={async () => {
+            const abs = await fsAbsPath(entry.path);
+            await navigator.clipboard.writeText(abs);
+            toast.success("Path copied");
+          }}
+        >
+          <ClipboardCopy className="mr-2 size-3.5" />
+          Copy Path
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onClick={() => onStartRename(entry.path, entry.name)}>
           <Pencil className="mr-2 size-3.5" />
           Rename
         </ContextMenuItem>
-        <ContextMenuSeparator />
         <ContextMenuItem
           className="text-destructive focus:text-destructive"
           onClick={() => void handleDelete()}
