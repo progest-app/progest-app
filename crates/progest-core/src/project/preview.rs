@@ -53,7 +53,7 @@ pub struct InitPreview {
 /// the not-yet-created directory the dialog is about to make.
 pub fn preview_init(target: &Path) -> Result<InitPreview, ProjectError> {
     let (target_path, target_exists) = if target.exists() {
-        (std::fs::canonicalize(target)?, true)
+        (dunce::canonicalize(target)?, true)
     } else {
         (target.to_path_buf(), false)
     };

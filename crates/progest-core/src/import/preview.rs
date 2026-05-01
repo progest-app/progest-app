@@ -33,8 +33,8 @@ pub fn build_preview(
             });
         }
 
-        if let Ok(canonical) = req.source.canonicalize()
-            && let Ok(root_canonical) = project_root.canonicalize()
+        if let Ok(canonical) = dunce::canonicalize(&req.source)
+            && let Ok(root_canonical) = dunce::canonicalize(project_root)
             && canonical.starts_with(&root_canonical)
         {
             let rel = canonical

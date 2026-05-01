@@ -40,7 +40,7 @@ impl ProjectRoot {
     /// Returns [`ProjectError::NotFound`] when the walk reaches the
     /// filesystem root without finding one.
     pub fn discover(start: &Path) -> Result<Self, ProjectError> {
-        let canonical_start = std::fs::canonicalize(start)?;
+        let canonical_start = dunce::canonicalize(start)?;
         let mut cursor: Option<&Path> = Some(&canonical_start);
         while let Some(dir) = cursor {
             if dir.join(DOT_DIR).is_dir() {
@@ -152,7 +152,7 @@ mod tests {
         let found = ProjectRoot::discover(&root).unwrap();
         // Canonicalized paths may differ on macOS (/var vs /private/var), so
         // compare via canonicalize on both sides.
-        let expected = std::fs::canonicalize(&root).unwrap();
+        let expected = dunce::canonicalize(&root).unwrap();
         assert_eq!(found.root(), expected);
     }
 
@@ -163,7 +163,7 @@ mod tests {
         let deep = root.join("a/b/c");
         std::fs::create_dir_all(&deep).unwrap();
         let found = ProjectRoot::discover(&deep).unwrap();
-        let expected = std::fs::canonicalize(&root).unwrap();
+        let expected = dunce::canonicalize(&root).unwrap();
         assert_eq!(found.root(), expected);
     }
 

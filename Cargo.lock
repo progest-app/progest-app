@@ -1186,6 +1186,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_home"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
+
+[[package]]
 name = "equator"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3569,6 +3575,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dunce",
  "progest-core",
  "serde",
  "serde_json",
@@ -3587,6 +3594,7 @@ dependencies = [
  "blake3",
  "chrono",
  "criterion",
+ "dunce",
  "globset",
  "heck 0.5.0",
  "ignore",
@@ -3609,6 +3617,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "uuid",
+ "which",
 ]
 
 [[package]]
@@ -3627,6 +3636,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
+ "dunce",
  "progest-core",
  "serde",
  "serde_json",
@@ -5930,6 +5940,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
+name = "which"
+version = "7.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
+dependencies = [
+ "either",
+ "env_home",
+ "rustix",
+ "winsafe",
+]
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6603,6 +6625,12 @@ dependencies = [
  "cfg-if",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wit-bindgen"

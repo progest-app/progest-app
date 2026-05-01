@@ -88,6 +88,10 @@ pub fn save(entries: &[RecentProject]) -> std::io::Result<()> {
     let bytes = serde_json::to_vec_pretty(&doc).map_err(std::io::Error::other)?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, bytes)?;
+    #[cfg(windows)]
+    if path.exists() {
+        let _ = std::fs::remove_file(&path);
+    }
     std::fs::rename(&tmp, &path)?;
     Ok(())
 }
@@ -96,7 +100,7 @@ pub fn save(entries: &[RecentProject]) -> std::io::Result<()> {
 /// matching the same canonical root are removed first so the
 /// timestamp tracks the latest open.
 pub fn record(root: &Path, name: &str, ts: DateTime<Utc>) -> std::io::Result<Vec<RecentProject>> {
-    let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let canonical = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let canonical_str = canonical.display().to_string();
     let mut entries = load();
     entries.retain(|e| e.root != canonical_str);

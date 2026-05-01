@@ -24,7 +24,7 @@ fn init_materializes_the_project_layout() {
     let out = run(tmp.path(), &["init", "--name", "Demo"]);
     assert!(out.status.success(), "init failed: {out:?}");
 
-    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    let root = dunce::canonicalize(tmp.path()).unwrap();
     assert!(root.join(".progest/project.toml").is_file());
     assert!(root.join(".progest/ignore").is_file());
     assert!(root.join(".progest/index.db").is_file());

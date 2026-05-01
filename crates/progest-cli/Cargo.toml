@@ -17,6 +17,7 @@ path = "src/main.rs"
 progest-core = { path = "../progest-core" }
 anyhow.workspace = true
 clap.workspace = true
+dunce.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
