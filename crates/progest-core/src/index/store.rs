@@ -892,4 +892,38 @@ mod tests {
         let err = idx.get_file_by_path(&p).unwrap_err();
         assert!(matches!(err, IndexError::InvalidKind(_)));
     }
+
+    #[test]
+    fn get_file_by_path_is_case_insensitive() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+
+        let upper = ProjectPath::new("ASSETS/HERO.PSD").unwrap();
+        let found = idx.get_file_by_path(&upper).unwrap();
+        assert!(
+            found.is_some(),
+            "case-insensitive lookup should find the row"
+        );
+        assert_eq!(found.unwrap().file_id, row.file_id);
+    }
+
+    #[test]
+    fn upsert_with_different_case_produces_one_row() {
+        let idx = SqliteIndex::open_in_memory().unwrap();
+        let row = sample_row();
+        idx.upsert_file(&row).unwrap();
+
+        let mut row2 = sample_row();
+        row2.path = ProjectPath::new("Assets/Hero.PSD").unwrap();
+        row2.file_id = FileId::new_v7();
+        idx.upsert_file(&row2).unwrap();
+
+        let all = idx.list_files().unwrap();
+        assert_eq!(
+            all.len(),
+            1,
+            "different-case path should collapse to one row"
+        );
+    }
 }
