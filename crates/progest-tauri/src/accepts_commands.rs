@@ -253,11 +253,12 @@ fn raw_from_wire(w: RawAcceptsWire) -> Result<RawAccepts, String> {
     let mode = match w.mode.as_str() {
         "strict" => Mode::Strict,
         "warn" => Mode::Warn,
+        "suggest" => Mode::Suggest,
         "hint" => Mode::Hint,
         "off" => Mode::Off,
         other => {
             return Err(format!(
-                "invalid mode `{other}` (expected strict/warn/hint/off)"
+                "invalid mode `{other}` (expected strict/warn/suggest/hint/off)"
             ));
         }
     };
@@ -309,6 +310,7 @@ fn mode_str(mode: Mode) -> &'static str {
     match mode {
         Mode::Strict => "strict",
         Mode::Warn => "warn",
+        Mode::Suggest => "suggest",
         Mode::Hint => "hint",
         Mode::Off => "off",
     }

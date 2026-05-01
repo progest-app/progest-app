@@ -87,7 +87,7 @@ pub fn extract_accepts(extra: &Table) -> Result<Option<AcceptsExtraction>, Accep
     let mut warnings = Vec::new();
     let mut inherit = false;
     let mut exts: Vec<AcceptsToken> = Vec::new();
-    let mut mode = Mode::Warn;
+    let mut mode = Mode::Suggest;
 
     for (key, value) in accepts_table {
         match key.as_str() {
@@ -129,13 +129,14 @@ pub fn extract_accepts(extra: &Table) -> Result<Option<AcceptsExtraction>, Accep
                 mode = match raw {
                     "strict" => Mode::Strict,
                     "warn" => Mode::Warn,
+                    "suggest" => Mode::Suggest,
                     "hint" => Mode::Hint,
                     "off" => Mode::Off,
                     other => {
                         return Err(AcceptsLoadError::InvalidField {
                             field: "mode",
                             message: format!(
-                                "unknown mode `{other}` (expected strict/warn/hint/off)"
+                                "unknown mode `{other}` (expected strict/warn/suggest/hint/off)"
                             ),
                         });
                     }
@@ -235,7 +236,7 @@ exts = [".psd"]
         );
         let got = extract_accepts(&t).unwrap().unwrap();
         assert!(!got.accepts.inherit);
-        assert_eq!(got.accepts.mode, Mode::Warn);
+        assert_eq!(got.accepts.mode, Mode::Suggest);
     }
 
     // --- Warnings -----------------------------------------------------------
