@@ -10,6 +10,7 @@
 //! that [`rename`] also uses since the two subcommands share their
 //! cleanup pipeline knobs.
 
+pub mod ai;
 pub mod clean;
 pub mod delete;
 pub mod doctor;
