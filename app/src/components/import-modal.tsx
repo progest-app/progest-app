@@ -13,7 +13,7 @@ import {
 
 import { toast } from "sonner";
 
-import { DotmSquare5 } from "@/components/ui/dotm-square-5";
+import { DotmSquare8 } from "@/components/ui/dotm-square-8";
 import { Progress } from "@/components/ui/progress";
 
 import {
@@ -325,7 +325,7 @@ export function ImportModal(props: ImportModalProps) {
           <Button onClick={() => void handleApply()} disabled={busy || !preview?.clean}>
             {busy ? (
               <>
-                <DotmSquare5 size={16} dotSize={2} animated className="mr-1.5" />
+                <DotmSquare8 size={16} dotSize={2} animated className="mr-1.5" />
                 Importing…
               </>
             ) : (

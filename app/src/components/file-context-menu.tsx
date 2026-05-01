@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { fileDeleteApply, fileDeletePreview, type DeletePreview } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
-import { DotmSquare5 } from "@/components/ui/dotm-square-5";
+import { DotmSquare1 } from "@/components/ui/dotm-square-1";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -100,7 +100,7 @@ export function FileContextMenu(props: FileContextMenuProps) {
             <Button variant="destructive" onClick={() => void handleDelete()} disabled={busy}>
               {busy ? (
                 <>
-                  <DotmSquare5 size={16} dotSize={2} animated className="mr-1.5" />
+                  <DotmSquare1 size={16} dotSize={2} animated className="mr-1.5" />
                   Deleting…
                 </>
               ) : (

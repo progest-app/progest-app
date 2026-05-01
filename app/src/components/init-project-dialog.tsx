@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DotmSquare5 } from "@/components/ui/dotm-square-5";
 import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useProject } from "@/lib/project-context";
@@ -423,7 +424,10 @@ function ProgressPanel(props: { progress: ProgressEvent | null }) {
   const pct = p && p.total > 0 ? (p.current / p.total) * 100 : undefined;
   return (
     <div className="grid gap-2 py-4">
-      <div className="text-sm text-muted-foreground">{p?.message ?? "Initializing\u{2026}"}</div>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <DotmSquare5 size={20} dotSize={3} animated />
+        {p?.message ?? "Initializing\u{2026}"}
+      </div>
       <Progress value={pct} />
       {p && p.total > 0 ? (
         <div className="text-right text-xs text-muted-foreground">
