@@ -37,6 +37,8 @@ psd.workspace = true
 tempfile.workspace = true
 libheif-rs = { workspace = true, optional = true }
 trash = "5.2.5"
+reqwest = { workspace = true }
+keyring = { workspace = true }
 
 [features]
 heic = ["dep:libheif-rs"]

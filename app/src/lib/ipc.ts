@@ -565,3 +565,78 @@ export async function lintRun(onProgress?: (e: ProgressEvent) => void): Promise<
     throw toIpcError(e);
   }
 }
+
+// --- AI suggestions -------------------------------------------------------
+
+export type AiSuggestionWire = {
+  value: string;
+  explanation: string | null;
+};
+
+export type AiSuggestResponse = {
+  suggestions: AiSuggestionWire[];
+  model: string;
+  provider: string;
+  elapsed_ms: number;
+  suggestion_type: string;
+};
+
+export type AiConfigResponse = {
+  provider: string;
+  model: string;
+  audit_log: boolean;
+  has_key: boolean;
+  glossary: string[];
+};
+
+export async function aiSuggest(
+  path: string,
+  suggestionType: string,
+  includeNotes: boolean,
+): Promise<AiSuggestResponse> {
+  try {
+    return await invoke<AiSuggestResponse>("ai_suggest", {
+      path,
+      suggestionType,
+      includeNotes,
+    });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function aiSetKey(provider: string, key: string): Promise<void> {
+  try {
+    await invoke<void>("ai_set_key", { provider, key });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function aiDeleteKey(provider: string): Promise<void> {
+  try {
+    await invoke<void>("ai_delete_key", { provider });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function aiSetConfig(opts: {
+  provider?: string;
+  model?: string;
+  audit_log?: boolean;
+}): Promise<void> {
+  try {
+    await invoke<void>("ai_set_config", opts);
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function aiGetConfig(): Promise<AiConfigResponse> {
+  try {
+    return await invoke<AiConfigResponse>("ai_get_config");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}

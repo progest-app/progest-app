@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
+use commands::ai::SuggestArgs;
 use commands::clean::{CaseFlag, CleanArgs, FillFlag};
 use commands::delete::DeleteArgs;
 use commands::import::ImportArgs;
@@ -193,6 +194,11 @@ enum Command {
         #[command(subcommand)]
         op: ViewOp,
     },
+    /// AI-powered suggestions (naming, tags, notes, placement).
+    Ai {
+        #[command(subcommand)]
+        op: AiOp,
+    },
     /// Manage project templates.
     Template {
         #[command(subcommand)]
@@ -297,6 +303,72 @@ enum ViewOp {
         #[arg(long, default_value = "text", value_enum)]
         format: OutputFormat,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum AiOp {
+    /// Get AI suggestions for a file.
+    Suggest {
+        /// Project-relative or absolute path to the target file.
+        path: String,
+        /// Type of suggestion.
+        #[arg(long = "type", default_value = "naming", value_enum)]
+        suggestion_type: SuggestionTypeCli,
+        /// Include notes body in AI context (opt-in for privacy).
+        #[arg(long)]
+        include_notes: bool,
+        /// Output format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+    /// Store an API key in the OS keychain.
+    SetKey {
+        /// AI provider (anthropic or openai).
+        #[arg(value_enum)]
+        provider: ProviderCli,
+        /// The API key.
+        key: String,
+    },
+    /// Show current AI configuration and key status.
+    Status {
+        /// Output format.
+        #[arg(long, default_value = "text", value_enum)]
+        format: OutputFormat,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SuggestionTypeCli {
+    Naming,
+    Tags,
+    Notes,
+    Placement,
+}
+
+impl From<SuggestionTypeCli> for progest_core::ai::SuggestionType {
+    fn from(v: SuggestionTypeCli) -> Self {
+        match v {
+            SuggestionTypeCli::Naming => Self::Naming,
+            SuggestionTypeCli::Tags => Self::Tags,
+            SuggestionTypeCli::Notes => Self::Notes,
+            SuggestionTypeCli::Placement => Self::Placement,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ProviderCli {
+    Anthropic,
+    Openai,
+}
+
+impl From<ProviderCli> for progest_core::ai::AiProvider {
+    fn from(v: ProviderCli) -> Self {
+        match v {
+            ProviderCli::Anthropic => Self::Anthropic,
+            ProviderCli::Openai => Self::OpenAi,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -504,6 +576,27 @@ fn main() -> Result<ExitCode> {
                     explain,
                 },
             )?;
+            Ok(to_exit_code(code))
+        }
+        Command::Ai { op } => {
+            let code = match op {
+                AiOp::Suggest {
+                    path,
+                    suggestion_type,
+                    include_notes,
+                    format,
+                } => commands::ai::run_suggest(
+                    &cwd,
+                    &SuggestArgs {
+                        path,
+                        suggestion_type: suggestion_type.into(),
+                        include_notes,
+                        format,
+                    },
+                )?,
+                AiOp::SetKey { provider, key } => commands::ai::run_set_key(provider.into(), &key)?,
+                AiOp::Status { format } => commands::ai::run_status(&cwd, format)?,
+            };
             Ok(to_exit_code(code))
         }
         Command::Template { op } => {
