@@ -517,6 +517,24 @@ export async function thumbnailPaths(fileIds: string[]): Promise<ThumbnailPathsR
   }
 }
 
+export type ThumbnailGenerateResponse = {
+  generated: number;
+  cached: number;
+  skipped: number;
+};
+
+export async function thumbnailGenerate(
+  onProgress?: (e: ProgressEvent) => void,
+): Promise<ThumbnailGenerateResponse> {
+  try {
+    return await invoke<ThumbnailGenerateResponse>("thumbnail_generate", {
+      onProgress: makeChannel(onProgress),
+    });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- file delete -----------------------------------------------------------
 
 export type DeletePreview = {

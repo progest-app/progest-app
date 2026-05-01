@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { BackgroundTaskProvider } from "@/lib/background-task-context";
 import { FlatViewSummaryProvider } from "@/lib/flat-view-context";
 import { ProjectProvider, useProject } from "@/lib/project-context";
 import { SettingsProvider, useSettings } from "@/lib/settings-context";
@@ -75,9 +76,11 @@ export function App() {
       <TooltipProvider delayDuration={150}>
         <ProjectProvider>
           <SettingsProvider>
-            <FlatViewSummaryProvider>
-              <Shell />
-            </FlatViewSummaryProvider>
+            <BackgroundTaskProvider>
+              <FlatViewSummaryProvider>
+                <Shell />
+              </FlatViewSummaryProvider>
+            </BackgroundTaskProvider>
           </SettingsProvider>
         </ProjectProvider>
         <Toaster position="bottom-right" />

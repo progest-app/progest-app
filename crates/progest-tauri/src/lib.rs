@@ -87,6 +87,7 @@ pub fn run() {
             import_commands::import_preview,
             import_commands::import_apply,
             thumbnail_commands::thumbnail_paths,
+            thumbnail_commands::thumbnail_generate,
             crud_commands::fs_create_dir,
             crud_commands::fs_create_file,
             crud_commands::fs_rename,

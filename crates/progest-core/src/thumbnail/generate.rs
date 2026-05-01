@@ -16,10 +16,21 @@ pub fn generate_batch(
     cache: &ThumbnailCache,
     force: bool,
 ) -> GenerateBatchReport {
+    generate_batch_with_progress(requests, cache, force, &|_, _, _| {})
+}
+
+pub fn generate_batch_with_progress(
+    requests: &[ThumbnailRequest],
+    cache: &ThumbnailCache,
+    force: bool,
+    on_progress: &dyn Fn(u64, u64, &str),
+) -> GenerateBatchReport {
     let ffmpeg_path = ffmpeg::find_ffmpeg();
     let mut report = GenerateBatchReport::default();
+    let total = requests.len() as u64;
 
-    for req in requests {
+    for (i, req) in requests.iter().enumerate() {
+        on_progress(i as u64, total, req.path.as_str());
         let result = generate_one(req, cache, force, ffmpeg_path.as_deref());
         match &result {
             ThumbnailResult::Generated { .. } => report.generated += 1,
