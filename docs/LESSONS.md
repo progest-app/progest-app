@@ -586,3 +586,38 @@
 - Rust edition 2024 以降、`std::env::set_var` / `remove_var` は unsafe function
 - workspace で `unsafe_code = "forbid"` の場合、env var を操作するテストは書けない
 - 代替: 統合テスト側で env var テストするか、env var lookup は trivial なので unit test をスキップ
+
+---
+
+## 19. Windows 対応
+
+### `std::fs::canonicalize` は Windows で `\\?\` prefix を返す
+- Windows の `std::fs::canonicalize` は extended-length path prefix `\\?\` を付加する
+- パス比較・display・strip_prefix が壊れる原因
+- 解決: `dunce::canonicalize` に全コールサイトを置換。macOS/Linux では no-op なので安全
+
+### `std::fs::rename` は Windows で target が存在すると EEXIST
+- Unix の rename(2) は atomic に上書きするが、Windows は `ERROR_ALREADY_EXISTS` を返す
+- `write_atomic` / `rename` / `recent::save` で `#[cfg(windows)] if target.exists() { remove_file }` ガードが必要
+- `retry_sharing_violation` と組み合わせ: remove → retry(rename) の順で両方カバー
+
+### DCC アプリの file lock（ERROR_SHARING_VIOLATION）
+- Photoshop / Maya 等の DCC ツールは保存中にファイルロックを取得
+- Windows raw OS error 32 = `ERROR_SHARING_VIOLATION`
+- `retry_sharing_violation` helper で exponential backoff 5 attempts（100ms → 1600ms、合計 ~3s）
+- `#[cfg(not(windows))]` ブランチと `#[cfg(windows)]` ブランチを同一関数内で分岐させると、dead code 警告を避けつつ両プラットフォームでコンパイル可能
+
+### SQLite COLLATE NOCASE でケース非感知パス一意性
+- macOS（HFS+ デフォルト）も Windows（NTFS）もケース非感知 FS
+- migration で `files` テーブルを rebuild し `path TEXT NOT NULL UNIQUE COLLATE NOCASE` を設定
+- `WHERE path = ?1` は COLLATE NOCASE がカラムに設定されていれば自動的にケース非感知になる — 明示的な `COLLATE NOCASE` 句は不要
+
+### Windows reserved filenames は cross-platform lint で検出
+- CON, PRN, AUX, NUL, COM0-9, LPT0-9 は NTFS で作成不可
+- `#[cfg(windows)]` ではなく全プラットフォームで常にチェック — macOS で作ったファイルが Windows で開けないケースを防止
+- stem のみ比較（`CON.txt` は stem `CON` で一致、`console.txt` は stem `console` で非一致）
+
+### `which` crate で ffmpeg 探索を cross-platform 化
+- Unix の `which` コマンドは Windows に存在しない
+- `which` crate（v7）は Windows / Unix 両対応で PATH 探索する
+- adjacent binary check では `ffmpeg.exe` も探索対象に追加
