@@ -16,10 +16,25 @@ const DragDropCtx = React.createContext<DragDropContextValue>({
   state: { active: false, paths: [], position: null },
 });
 
-/** Convert Tauri PhysicalPosition to CSS logical pixels. */
+/**
+ * Convert Tauri DragDropEvent position to CSS logical pixels.
+ *
+ * Tauri types the position as `PhysicalPosition`, but on macOS the
+ * coordinates are already in logical pixels (NSEvent reports points).
+ * Blindly dividing by devicePixelRatio on Retina displays halves the
+ * values, causing the offset to grow with distance from the origin.
+ *
+ * Heuristic: if either coordinate exceeds the CSS viewport dimensions,
+ * the values must be in device pixels (Windows / Linux with scaling) and
+ * need conversion. Otherwise they are already logical and are returned
+ * as-is.
+ */
 function toLogical(pos: { x: number; y: number }): { x: number; y: number } {
   const dpr = window.devicePixelRatio || 1;
-  return { x: pos.x / dpr, y: pos.y / dpr };
+  if (dpr > 1 && (pos.x > window.innerWidth || pos.y > window.innerHeight)) {
+    return { x: pos.x / dpr, y: pos.y / dpr };
+  }
+  return pos;
 }
 
 export function useDropZone(ref: React.RefObject<HTMLElement | null>): {
@@ -52,6 +67,9 @@ export function DragDropProvider(props: {
     position: null,
   });
 
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
+
   const onDropRef = React.useRef(props.onDrop);
   onDropRef.current = props.onDrop;
 
@@ -74,14 +92,14 @@ export function DragDropProvider(props: {
             position: toLogical(p.position),
           }));
         } else if (p.type === "drop") {
-          const logicalPos = toLogical(p.position);
-          setState((prev) => {
-            const paths = prev.paths.length > 0 ? prev.paths : p.paths;
-            // Schedule the callback outside the state updater to avoid
-            // side effects inside setState.
-            queueMicrotask(() => onDropRef.current(paths, logicalPos));
-            return { active: false, paths: [], position: null };
-          });
+          // Fire the callback SYNCHRONOUSLY before setState so that
+          // elementFromPoint (called by handleDrop → dirPathAtPoint)
+          // runs while the drag-over DOM state is still intact.
+          const prev = stateRef.current;
+          const paths = prev.paths.length > 0 ? prev.paths : p.paths;
+          const dropPos = prev.position ?? toLogical(p.position);
+          onDropRef.current(paths, dropPos);
+          setState({ active: false, paths: [], position: null });
         } else {
           setState({ active: false, paths: [], position: null });
         }
