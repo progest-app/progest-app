@@ -34,7 +34,19 @@ import { ViolationBadges } from "@/components/violation-badges";
 /** Prefix that flips the palette into "system commands" mode. */
 const COMMAND_PREFIX = ">";
 
-const SEARCH_DEBOUNCE_MS = 200;
+const SEARCH_DEBOUNCE_DEFAULT = 300;
+const DEBOUNCE_KEY = "progest:search-debounce-ms";
+
+function getSearchDebounceMs(): number {
+  try {
+    const v = localStorage.getItem(DEBOUNCE_KEY);
+    if (v) {
+      const n = Number(v);
+      if (n >= 100 && n <= 2000) return Math.max(n * 0.75, 100);
+    }
+  } catch {}
+  return SEARCH_DEBOUNCE_DEFAULT;
+}
 
 export function CommandPalette(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const { project, recent, openPicker, pickRecent, clearRecent, submitFlatViewQuery } =
@@ -130,7 +142,7 @@ export function CommandPalette(props: { onPickHit?: (hit: RichSearchHit) => void
       } finally {
         setLoading(false);
       }
-    }, SEARCH_DEBOUNCE_MS);
+    }, getSearchDebounceMs());
     return () => clearTimeout(handle);
   }, [query, open, isCommandMode]);
 

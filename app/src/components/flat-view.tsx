@@ -53,7 +53,19 @@ import {
   type HitsColumnId,
 } from "@/components/hits-data-table";
 
-const DEBOUNCE_MS = 200;
+const DEBOUNCE_MS_DEFAULT = 400;
+const DEBOUNCE_KEY = "progest:search-debounce-ms";
+
+function getDebounceMs(): number {
+  try {
+    const v = localStorage.getItem(DEBOUNCE_KEY);
+    if (v) {
+      const n = Number(v);
+      if (n >= 100 && n <= 2000) return n;
+    }
+  } catch {}
+  return DEBOUNCE_MS_DEFAULT;
+}
 const COLUMN_VISIBILITY_KEY = "progest:flatview-columns";
 const COLUMN_SIZING_KEY = "progest:flatview-column-sizing";
 const SORTING_KEY = "progest:flatview-sorting";
@@ -239,10 +251,10 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
         cancelled = true;
       };
     }
-    setLoading(true);
     const handle = setTimeout(async () => {
+      if (cancelled) return;
+      setLoading(true);
       try {
-        if (cancelled) return;
         setResponse(await searchExecute(trimmed));
         setError(null);
       } catch (e) {
@@ -252,7 +264,7 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }, DEBOUNCE_MS);
+    }, getDebounceMs());
     return () => {
       cancelled = true;
       clearTimeout(handle);
