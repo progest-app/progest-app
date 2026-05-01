@@ -36,7 +36,7 @@ use progest_core::search::{
     execute, parse, plan, project_hits, validate_with_catalog,
 };
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::recent::{self, RecentProject};
 use crate::state::{AppState, ProjectContext, ProjectInfo};
@@ -162,52 +162,50 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
 }
 
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn search_execute(query: String, state: State<'_, AppState>) -> Result<SearchResponse, String> {
-    let guard = state.project.lock().expect("project mutex poisoned");
-    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+pub async fn search_execute(query: String, app: AppHandle) -> Result<SearchResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
 
-    let parsed = match parse(&query) {
-        Ok(p) => p,
-        Err(e) => {
-            return Ok(SearchResponse {
-                query,
-                hits: Vec::new(),
-                warnings: Vec::new(),
-                parse_error: Some(ParseErrorPayload {
-                    message: e.to_string(),
-                    column: e.column(),
-                }),
-            });
-        }
-    };
-    let schema = load_schema(ctx).unwrap_or_default();
-    let aliases = load_alias_catalog_for_ctx(ctx);
-    let validated = validate_with_catalog(&parsed, &schema, &aliases);
-    let planned = plan(&validated);
+        let parsed = match parse(&query) {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(SearchResponse {
+                    query,
+                    hits: Vec::new(),
+                    warnings: Vec::new(),
+                    parse_error: Some(ParseErrorPayload {
+                        message: e.to_string(),
+                        column: e.column(),
+                    }),
+                });
+            }
+        };
+        let schema = load_schema(ctx).unwrap_or_default();
+        let aliases = load_alias_catalog_for_ctx(ctx);
+        let validated = validate_with_catalog(&parsed, &schema, &aliases);
+        let planned = plan(&validated);
 
-    let hits = ctx
-        .index
-        .with_connection(|conn| execute(conn, &planned))
-        .map_err(|e| format!("execute search: {e}"))?;
-    let mut rich =
-        project_hits(&ctx.index, &hits).map_err(|e| format!("project search hits: {e}"))?;
-    // See `is_plumbing_path` — same stale-index defense as files_list_all.
-    rich.retain(|h| !is_plumbing_path(&h.path));
+        let hits = ctx
+            .index
+            .with_connection(|conn| execute(conn, &planned))
+            .map_err(|e| format!("execute search: {e}"))?;
+        let mut rich =
+            project_hits(&ctx.index, &hits).map_err(|e| format!("project search hits: {e}"))?;
+        rich.retain(|h| !is_plumbing_path(&h.path));
 
-    let warnings: Vec<String> = validated.warnings.iter().map(ToString::to_string).collect();
+        let warnings: Vec<String> = validated.warnings.iter().map(ToString::to_string).collect();
 
-    // Search history is no longer auto-recorded here — debounced
-    // keystrokes from the palette would otherwise pollute the recent
-    // list. The frontend calls `search_history_record` explicitly when
-    // the user commits a query (Enter key).
-
-    Ok(SearchResponse {
-        query,
-        hits: rich,
-        warnings,
-        parse_error: None,
+        Ok(SearchResponse {
+            query,
+            hits: rich,
+            warnings,
+            parse_error: None,
+        })
     })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Append `query` to `.progest/local/search-history.json`. Called by
@@ -347,46 +345,42 @@ pub struct FileEntryWire {
 /// via `is_sidecar`), so we don't need an extra suffix filter here —
 /// the tree view's filter handles the FS surface separately.
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn files_list_all(state: State<'_, AppState>) -> Result<Vec<RichSearchHit>, String> {
-    let guard = state.project.lock().expect("project mutex poisoned");
-    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+pub async fn files_list_all(app: AppHandle) -> Result<Vec<RichSearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
 
-    // Run an ad-hoc SELECT against the files table — there's no
-    // planner shortcut for "match all" today, and writing one for one
-    // caller isn't worth the surface. The closure boxes rusqlite
-    // errors into String at the boundary so this crate doesn't have
-    // to take a direct rusqlite dep.
-    let hits: Vec<SearchHit> = ctx.index.with_connection(|conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT file_id, path \
-                 FROM files \
-                 ORDER BY LOWER(COALESCE(name, path)) ASC, path ASC, file_id ASC",
-            )
-            .map_err(|e| format!("prepare: {e}"))?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(SearchHit {
-                    file_id: row.get::<_, String>(0)?,
-                    path: row.get::<_, String>(1)?,
+        let hits: Vec<SearchHit> = ctx.index.with_connection(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT file_id, path \
+                     FROM files \
+                     ORDER BY LOWER(COALESCE(name, path)) ASC, path ASC, file_id ASC",
+                )
+                .map_err(|e| format!("prepare: {e}"))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(SearchHit {
+                        file_id: row.get::<_, String>(0)?,
+                        path: row.get::<_, String>(1)?,
+                    })
                 })
-            })
-            .map_err(|e| format!("query: {e}"))?;
-        let mut out: Vec<SearchHit> = Vec::new();
-        for r in rows {
-            out.push(r.map_err(|e| format!("row: {e}"))?);
-        }
-        Ok::<Vec<SearchHit>, String>(out)
-    })?;
+                .map_err(|e| format!("query: {e}"))?;
+            let mut out: Vec<SearchHit> = Vec::new();
+            for r in rows {
+                out.push(r.map_err(|e| format!("row: {e}"))?);
+            }
+            Ok::<Vec<SearchHit>, String>(out)
+        })?;
 
-    let mut rich = project_hits(&ctx.index, &hits).map_err(|e| format!("project files: {e}"))?;
-    // Defense in depth: even after the scanner-level ignore now drops
-    // `.dirmeta.toml`, an index that hasn't been re-scanned since this
-    // build still contains stale sidecar rows. Drop them here so the
-    // UI never surfaces project plumbing.
-    rich.retain(|h| !is_plumbing_path(&h.path));
-    Ok(rich)
+        let mut rich =
+            project_hits(&ctx.index, &hits).map_err(|e| format!("project files: {e}"))?;
+        rich.retain(|h| !is_plumbing_path(&h.path));
+        Ok(rich)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// One row of [`extensions_catalog`].
@@ -441,69 +435,64 @@ fn is_plumbing_path(path: &str) -> bool {
 /// reconciled yet still appear with their basename so the tree
 /// reflects on-disk truth, not just the index.
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn files_list_dir(
-    path: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<DirEntryWire>, String> {
-    let guard = state.project.lock().expect("project mutex poisoned");
-    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+pub async fn files_list_dir(path: String, app: AppHandle) -> Result<Vec<DirEntryWire>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
 
-    // Normalize the request path. "" / "." both mean "project root".
-    let rel = path.trim_matches('/');
-    let rel = if rel == "." { "" } else { rel };
-    let abs = if rel.is_empty() {
-        ctx.root.root().to_path_buf()
-    } else {
-        ctx.root.root().join(rel)
-    };
+        let rel = path.trim_matches('/');
+        let rel = if rel == "." { "" } else { rel };
+        let abs = if rel.is_empty() {
+            ctx.root.root().to_path_buf()
+        } else {
+            ctx.root.root().join(rel)
+        };
 
-    // Defense against escape attempts via "..": the canonicalized
-    // request path must remain inside the project root.
-    let canonical_root =
-        dunce::canonicalize(ctx.root.root()).map_err(|e| format!("canonicalize root: {e}"))?;
-    let canonical_abs =
-        dunce::canonicalize(&abs).map_err(|e| format!("canonicalize `{rel}`: {e}"))?;
-    if !canonical_abs.starts_with(&canonical_root) {
-        return Err(format!("path `{rel}` escapes project root"));
-    }
+        let canonical_root =
+            dunce::canonicalize(ctx.root.root()).map_err(|e| format!("canonicalize root: {e}"))?;
+        let canonical_abs =
+            dunce::canonicalize(&abs).map_err(|e| format!("canonicalize `{rel}`: {e}"))?;
+        if !canonical_abs.starts_with(&canonical_root) {
+            return Err(format!("path `{rel}` escapes project root"));
+        }
 
-    let ignore = IgnoreRules::load(&ctx.fs).map_err(|e| format!("load ignore rules: {e}"))?;
+        let ignore = IgnoreRules::load(&ctx.fs).map_err(|e| format!("load ignore rules: {e}"))?;
 
-    let read = std::fs::read_dir(&canonical_abs)
-        .map_err(|e| format!("read_dir `{}`: {e}", canonical_abs.display()))?;
-    let mut entries: Vec<DirEntryWire> = Vec::new();
-    for r in read {
-        let dirent = match r {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!("read_dir entry error in `{}`: {e}", canonical_abs.display());
-                continue;
+        let read = std::fs::read_dir(&canonical_abs)
+            .map_err(|e| format!("read_dir `{}`: {e}", canonical_abs.display()))?;
+        let mut entries: Vec<DirEntryWire> = Vec::new();
+        for r in read {
+            let dirent = match r {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("read_dir entry error in `{}`: {e}", canonical_abs.display());
+                    continue;
+                }
+            };
+            if let Some(entry) = build_dir_entry(ctx, &ignore, rel, &dirent)? {
+                entries.push(entry);
             }
-        };
-        if let Some(entry) = build_dir_entry(ctx, &ignore, rel, &dirent)? {
-            entries.push(entry);
         }
-    }
 
-    // Dirs first, then files; case-insensitive name sort within each
-    // group. Stable ordering keeps the tree from re-shuffling on every
-    // refresh.
-    entries.sort_by(|a, b| {
-        let dir_first = match (&a.kind, &b.kind) {
-            (DirEntryKind::Dir, DirEntryKind::File) => std::cmp::Ordering::Less,
-            (DirEntryKind::File, DirEntryKind::Dir) => std::cmp::Ordering::Greater,
-            _ => std::cmp::Ordering::Equal,
-        };
-        if dir_first != std::cmp::Ordering::Equal {
-            return dir_first;
-        }
-        a.name
-            .to_lowercase()
-            .cmp(&b.name.to_lowercase())
-            .then_with(|| a.name.cmp(&b.name))
-    });
-    Ok(entries)
+        entries.sort_by(|a, b| {
+            let dir_first = match (&a.kind, &b.kind) {
+                (DirEntryKind::Dir, DirEntryKind::File) => std::cmp::Ordering::Less,
+                (DirEntryKind::File, DirEntryKind::Dir) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            };
+            if dir_first != std::cmp::Ordering::Equal {
+                return dir_first;
+            }
+            a.name
+                .to_lowercase()
+                .cmp(&b.name.to_lowercase())
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        Ok(entries)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 /// Build one [`DirEntryWire`] from a `read_dir` entry, applying the
