@@ -182,17 +182,16 @@ export function TreeView(props: {
     return dirPathAtPoint(dragState.position);
   }, [dragState.active, dragState.position]);
 
-  // F2 keybinding for rename
+  // Listen for palette "New file / New folder" commands
   React.useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "F2" && !edit) {
-        // Rename the currently selected dir or last clicked item
-        // For now, F2 is handled per-node via context menu
-      }
+    function onCreateEvent(e: Event) {
+      const detail = (e as CustomEvent<{ kind: "file" | "dir" }>).detail;
+      const dir = props.selectedDir ?? "";
+      startCreate(dir, detail.kind);
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [edit]);
+    window.addEventListener("progest:create", onCreateEvent);
+    return () => window.removeEventListener("progest:create", onCreateEvent);
+  }, [props.selectedDir, startCreate]);
 
   return (
     <nav className="h-full overflow-auto p-1 text-xs">
