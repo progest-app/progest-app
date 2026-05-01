@@ -159,6 +159,17 @@ function Shell() {
     setSelection(null);
   }, []);
 
+  // Clear file selection when any rename happens so the inspector
+  // doesn't show stale data. bumpRefresh (fired by the rename caller)
+  // will update the tree/flat views.
+  React.useEffect(() => {
+    function onRenamed() {
+      setSelection(null);
+    }
+    window.addEventListener("progest:renamed", onRenamed);
+    return () => window.removeEventListener("progest:renamed", onRenamed);
+  }, []);
+
   const onSelectionUpdate = React.useCallback((updatedHit: RichSearchHit) => {
     setSelection({ kind: "file", hit: updatedHit });
   }, []);

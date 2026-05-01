@@ -1,6 +1,6 @@
 //! IPC commands for file deletion (OS trash).
 
-use progest_core::delete::{apply_delete, preview_delete};
+use progest_core::delete::{apply_delete, apply_delete_dir, preview_delete};
 use progest_core::fs::ProjectPath;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
@@ -58,6 +58,28 @@ pub async fn file_delete_apply(path: String, app: AppHandle) -> Result<DeleteOut
             ProjectPath::new(&path).map_err(|e| format!("invalid path `{path}`: {e}"))?;
         let outcome =
             apply_delete(&ctx.index, ctx.root.root(), &project_path).map_err(|e| format!("{e}"))?;
+
+        Ok(DeleteOutcomeWire {
+            path: outcome.path.as_str().to_owned(),
+            file_id: outcome.file_id.to_string(),
+            sidecar_trashed: outcome.sidecar_trashed,
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn dir_delete_apply(path: String, app: AppHandle) -> Result<DeleteOutcomeWire, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+        let project_path =
+            ProjectPath::new(&path).map_err(|e| format!("invalid path `{path}`: {e}"))?;
+        let outcome = apply_delete_dir(&ctx.index, ctx.root.root(), &project_path)
+            .map_err(|e| format!("{e}"))?;
 
         Ok(DeleteOutcomeWire {
             path: outcome.path.as_str().to_owned(),

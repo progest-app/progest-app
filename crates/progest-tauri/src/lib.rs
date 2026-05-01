@@ -7,6 +7,7 @@
 mod accepts_commands;
 mod ai_commands;
 mod commands;
+mod crud_commands;
 mod delete_commands;
 mod file_inspector_commands;
 mod import_commands;
@@ -86,8 +87,13 @@ pub fn run() {
             import_commands::import_preview,
             import_commands::import_apply,
             thumbnail_commands::thumbnail_paths,
+            crud_commands::fs_create_dir,
+            crud_commands::fs_create_file,
+            crud_commands::fs_rename,
+            crud_commands::fs_move,
             delete_commands::file_delete_preview,
             delete_commands::file_delete_apply,
+            delete_commands::dir_delete_apply,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,

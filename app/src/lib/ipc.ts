@@ -547,6 +547,52 @@ export async function fileDeleteApply(path: string): Promise<DeleteOutcome> {
   }
 }
 
+export async function dirDeleteApply(path: string): Promise<DeleteOutcome> {
+  try {
+    return await invoke<DeleteOutcome>("dir_delete_apply", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+// --- CRUD (create / rename / move) ----------------------------------------
+
+export type CreateOutcome = { path: string; kind: string };
+export type RenameOutcome = { from: string; to: string };
+export type MoveOutcome = { from: string; to: string };
+
+export async function fsCreateDir(path: string): Promise<CreateOutcome> {
+  try {
+    return await invoke<CreateOutcome>("fs_create_dir", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function fsCreateFile(path: string): Promise<CreateOutcome> {
+  try {
+    return await invoke<CreateOutcome>("fs_create_file", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function fsRename(from: string, newName: string): Promise<RenameOutcome> {
+  try {
+    return await invoke<RenameOutcome>("fs_rename", { from, newName });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function fsMove(path: string, destDir: string): Promise<MoveOutcome> {
+  try {
+    return await invoke<MoveOutcome>("fs_move", { path, destDir });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- lint refresh ----------------------------------------------------------
 
 export type LintRunResponse = {

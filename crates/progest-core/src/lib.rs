@@ -11,6 +11,7 @@
 
 pub mod accepts;
 pub mod ai;
+pub mod create;
 pub mod delete;
 pub mod fs;
 pub mod history;
