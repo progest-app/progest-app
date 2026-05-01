@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -272,13 +273,53 @@ function AiSettingsTab() {
   );
 }
 
+const DEBOUNCE_KEY = "progest:search-debounce-ms";
+const DEBOUNCE_DEFAULT = 400;
+const DEBOUNCE_MIN = 100;
+const DEBOUNCE_MAX = 1500;
+const DEBOUNCE_STEP = 50;
+
 function GeneralTab() {
   return (
     <div className="grid gap-4">
       <ThemeSettings />
-      <div className="pt-2 text-center text-[0.625rem] text-muted-foreground">
-        More settings coming in a future release.
+      <SearchDebounceSettings />
+    </div>
+  );
+}
+
+function SearchDebounceSettings() {
+  const [value, setValue] = React.useState(() => {
+    try {
+      const v = Number(localStorage.getItem(DEBOUNCE_KEY));
+      if (v >= DEBOUNCE_MIN && v <= DEBOUNCE_MAX) return v;
+    } catch {}
+    return DEBOUNCE_DEFAULT;
+  });
+
+  const commit = (next: number) => {
+    setValue(next);
+    localStorage.setItem(DEBOUNCE_KEY, String(next));
+  };
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <Label>Search debounce</Label>
+        <span className="text-xs tabular-nums text-muted-foreground">{value}ms</span>
       </div>
+      <Slider
+        min={DEBOUNCE_MIN}
+        max={DEBOUNCE_MAX}
+        step={DEBOUNCE_STEP}
+        value={[value]}
+        onValueChange={([v]) => {
+          if (v != null) commit(v);
+        }}
+      />
+      <span className="text-[0.625rem] text-muted-foreground">
+        Delay before search runs while typing. Higher = less jank, lower = faster results.
+      </span>
     </div>
   );
 }
