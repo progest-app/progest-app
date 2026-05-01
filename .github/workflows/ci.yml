@@ -49,12 +49,16 @@ jobs:
         run: mise run check
 
   test:
-    name: Cargo test
-    runs-on: ubuntu-latest
+    name: Cargo test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Tauri build dependencies
+      - name: Install Tauri build dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -82,7 +86,25 @@ jobs:
   build-macos:
     name: Build (macOS)
     runs-on: macos-latest
-    # Only run on main pushes to keep macOS minutes manageable.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v3
+        with:
+          install: true
+          cache: true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build workspace and frontend
+        run: mise run build
+
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v5
