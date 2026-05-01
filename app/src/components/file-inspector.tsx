@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Plus, RefreshCw, Settings, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Plus, RefreshCw, Settings, Sparkles, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -113,6 +113,7 @@ function AiSuggestionsList(props: {
   ai: ReturnType<typeof useAiSuggestion>;
   renderAction: (s: AiSuggestionWire) => React.ReactNode;
   notesCheckbox?: boolean;
+  actionBar?: React.ReactNode;
 }) {
   const { ai } = props;
   return (
@@ -135,6 +136,7 @@ function AiSuggestionsList(props: {
       {ai.error ? <div className="text-destructive">{ai.error}</div> : null}
       {ai.suggestions.length > 0 ? (
         <>
+          {props.actionBar}
           <div className="flex items-center justify-between">
             <span className="text-[0.625rem] text-muted-foreground">
               {ai.suggestions.length} suggestion{ai.suggestions.length > 1 ? "s" : ""}
@@ -160,6 +162,19 @@ function AiSuggestionsList(props: {
         </>
       ) : null}
     </>
+  );
+}
+
+function DiscardBar(props: { onDiscard: () => void; disabled: boolean }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5">
+      <Sparkles className="size-3 shrink-0 text-primary" />
+      <span className="flex-1 text-[0.625rem] text-muted-foreground">AI suggestions</span>
+      <Button size="xs" variant="outline" onClick={props.onDiscard} disabled={props.disabled}>
+        <X className="mr-1 size-3" />
+        Discard
+      </Button>
+    </div>
   );
 }
 
@@ -254,6 +269,39 @@ export const FileInspector = React.forwardRef<
     [localHit.path, bumpRefresh, notesAi],
   );
 
+  const hasSuggestions =
+    namingAi.suggestions.length > 0 ||
+    tagsAi.suggestions.length > 0 ||
+    notesAi.suggestions.length > 0;
+
+  const [applyingAll, setApplyingAll] = React.useState(false);
+
+  const handleApplyAllTags = React.useCallback(async () => {
+    const tags = tagsAi.suggestions.map((s) => s.value);
+    if (tags.length === 0) return;
+    setApplyingAll(true);
+    try {
+      await Promise.all(tags.map((t) => tagAdd(localHit.file_id, t)));
+      tagsAi.setSuggestions([]);
+      setLocalHit((prev) => ({
+        ...prev,
+        tags: [...prev.tags, ...tags].toSorted((a, b) => a.localeCompare(b)),
+      }));
+      bumpRefresh();
+      toast.success(`${tags.length} tag${tags.length > 1 ? "s" : ""} applied`);
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    } finally {
+      setApplyingAll(false);
+    }
+  }, [tagsAi, localHit.file_id, bumpRefresh]);
+
+  const handleDiscardAll = React.useCallback(() => {
+    namingAi.setSuggestions([]);
+    tagsAi.setSuggestions([]);
+    notesAi.setSuggestions([]);
+  }, [namingAi, tagsAi, notesAi]);
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr] overflow-hidden">
       <header className="border-b px-3 py-2">
@@ -266,6 +314,11 @@ export const FileInspector = React.forwardRef<
           aiConfig={isIndexed ? aiConfig : null}
           ai={namingAi}
           onApplyRename={handleApplyRename}
+          actionBar={
+            hasSuggestions ? (
+              <DiscardBar onDiscard={handleDiscardAll} disabled={applyingAll} />
+            ) : undefined
+          }
         />
         <StaticFields hit={localHit} />
         <TagsSection
@@ -274,6 +327,29 @@ export const FileInspector = React.forwardRef<
           aiConfig={isIndexed ? aiConfig : null}
           ai={tagsAi}
           onApplyTag={handleApplyTag}
+          actionBar={
+            tagsAi.suggestions.length > 0 ? (
+              <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2 py-1.5">
+                <Sparkles className="size-3 shrink-0 text-primary" />
+                <span className="flex-1 text-[0.625rem] text-muted-foreground">
+                  {tagsAi.suggestions.length} tag{tagsAi.suggestions.length > 1 ? "s" : ""}
+                </span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={handleDiscardAll}
+                  disabled={applyingAll}
+                >
+                  <X className="mr-1 size-3" />
+                  Discard
+                </Button>
+                <Button size="xs" onClick={() => void handleApplyAllTags()} disabled={applyingAll}>
+                  <Check className="mr-1 size-3" />
+                  Apply all
+                </Button>
+              </div>
+            ) : undefined
+          }
         />
         <NotesSection
           hit={localHit}
@@ -282,6 +358,11 @@ export const FileInspector = React.forwardRef<
           aiConfig={isIndexed ? aiConfig : null}
           ai={notesAi}
           onApplyNotes={handleApplyNotes}
+          actionBar={
+            notesAi.suggestions.length > 0 && !namingAi.suggestions.length ? (
+              <DiscardBar onDiscard={handleDiscardAll} disabled={applyingAll} />
+            ) : undefined
+          }
         />
         <CustomFieldsBlock hit={localHit} />
         {!isIndexed ? (
@@ -303,6 +384,7 @@ function NameSection(props: {
   aiConfig: AiConfigResponse | null;
   ai: ReturnType<typeof useAiSuggestion>;
   onApplyRename: (newName: string) => void;
+  actionBar?: React.ReactNode;
 }) {
   const name = props.hit.name ?? props.hit.path.split("/").pop() ?? "";
   return (
@@ -318,6 +400,7 @@ function NameSection(props: {
       <div className="min-w-0 break-words font-mono">{name}</div>
       <AiSuggestionsList
         ai={props.ai}
+        actionBar={props.actionBar}
         renderAction={(s) => (
           <Button size="xs" variant="ghost" onClick={() => void props.onApplyRename(s.value)}>
             Rename
@@ -370,6 +453,7 @@ function TagsSection(props: {
   aiConfig: AiConfigResponse | null;
   ai: ReturnType<typeof useAiSuggestion>;
   onApplyTag: (tag: string) => void;
+  actionBar?: React.ReactNode;
 }) {
   const { hit, disabled } = props;
   const { bumpRefresh } = useProject();
@@ -494,6 +578,7 @@ function TagsSection(props: {
       {error ? <div className="text-destructive">{error}</div> : null}
       <AiSuggestionsList
         ai={props.ai}
+        actionBar={props.actionBar}
         renderAction={(s) => (
           <Button size="xs" variant="ghost" onClick={() => void props.onApplyTag(s.value)}>
             Apply
@@ -513,6 +598,7 @@ function NotesSection(props: {
   aiConfig: AiConfigResponse | null;
   ai: ReturnType<typeof useAiSuggestion>;
   onApplyNotes: (notes: string) => void;
+  actionBar?: React.ReactNode;
 }) {
   const { hit, disabled } = props;
   const { bumpRefresh } = useProject();
@@ -592,6 +678,7 @@ function NotesSection(props: {
       {error ? <div className="text-destructive">{error}</div> : null}
       <AiSuggestionsList
         ai={props.ai}
+        actionBar={props.actionBar}
         notesCheckbox
         renderAction={(s) => (
           <Button size="xs" variant="ghost" onClick={() => void props.onApplyNotes(s.value)}>
