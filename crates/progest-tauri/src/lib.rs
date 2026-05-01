@@ -5,6 +5,7 @@
 //! not live here.
 
 mod accepts_commands;
+mod ai_commands;
 mod commands;
 mod delete_commands;
 mod file_inspector_commands;
@@ -87,6 +88,9 @@ pub fn run() {
             thumbnail_commands::thumbnail_paths,
             delete_commands::file_delete_preview,
             delete_commands::file_delete_apply,
+            ai_commands::ai_suggest,
+            ai_commands::ai_set_key,
+            ai_commands::ai_get_config,
         ])
         .setup(|app| {
             // We build the main window programmatically rather than via
