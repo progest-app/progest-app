@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 
 import { DotmSquare8 } from "@/components/ui/dotm-square-8";
+import { Progress } from "@/components/ui/progress";
 
 import {
   importApply,
@@ -23,6 +24,7 @@ import {
   type ImportOp,
   type ImportPreview,
   type ImportRequestWire,
+  type ProgressEvent,
   type SuggestedDestination,
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
@@ -63,6 +65,7 @@ export function ImportModal(props: ImportModalProps) {
   const [preview, setPreview] = React.useState<ImportPreview | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [progress, setProgress] = React.useState<ProgressEvent | null>(null);
   const [dirPickerOpen, setDirPickerOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -118,13 +121,14 @@ export function ImportModal(props: ImportModalProps) {
     if (!preview || !preview.clean || busy) return;
     setBusy(true);
     setError(null);
+    setProgress(null);
     try {
       const requests: ImportRequestWire[] = sources.map((src) => {
         const filename = src.split("/").pop() ?? src;
         const destPath = dest ? `${dest}/${filename}` : filename;
         return { source: src, dest: destPath, mode };
       });
-      const result = await importApply(requests);
+      const result = await importApply(requests, (e) => setProgress(e));
       bumpRefresh();
       onOpenChange(false);
       const count = result.imported.length;
@@ -140,6 +144,7 @@ export function ImportModal(props: ImportModalProps) {
       setError(String(e));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -294,6 +299,20 @@ export function ImportModal(props: ImportModalProps) {
                 </div>
               </div>
             )
+          ) : null}
+
+          {busy && progress ? (
+            <div className="grid gap-1.5">
+              <div className="text-xs text-muted-foreground">{progress.message}</div>
+              <Progress
+                value={progress.total > 0 ? (progress.current / progress.total) * 100 : undefined}
+              />
+              {progress.total > 0 ? (
+                <div className="text-right text-xs text-muted-foreground">
+                  {progress.current} / {progress.total}
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           {error ? <div className="text-xs text-destructive">{error}</div> : null}

@@ -17,5 +17,7 @@ pub mod orchestrator;
 pub mod report;
 
 pub use index_writer::write_to_index;
-pub use orchestrator::{LintError, LintOptions, SEQUENCE_DRIFT_RULE_ID, lint_paths};
+pub use orchestrator::{
+    LintError, LintOptions, SEQUENCE_DRIFT_RULE_ID, lint_paths, lint_paths_with_progress,
+};
 pub use report::{LintReport, LintSummary};

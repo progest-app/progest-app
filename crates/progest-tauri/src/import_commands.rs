@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::commands::{load_alias_catalog_for_ctx, no_project_error};
+use crate::progress::ProgressEvent;
 use crate::state::{AppState, ProjectContext};
 
 // ------------------------------------------------------------------ wire types
@@ -187,6 +188,7 @@ pub async fn import_preview(
 #[tauri::command]
 pub async fn import_apply(
     requests: Vec<ImportRequestWire>,
+    on_progress: tauri::ipc::Channel<ProgressEvent>,
     app: AppHandle,
 ) -> Result<ImportOutcomeWire, String> {
     let reqs = wire_to_requests(&requests)?;
@@ -209,7 +211,15 @@ pub async fn import_apply(
             HistoryStore::open(&ctx.root.history_db()).map_err(|e| format!("open history: {e}"))?;
 
         let driver = Import::new(&ctx.fs, &meta_store, &ctx.index, &history, ctx.root.root());
-        let outcome = driver.apply(&preview).map_err(|e| format!("apply: {e}"))?;
+        let outcome = driver
+            .apply_with_progress(&preview, &|current, total, msg| {
+                let _ = on_progress.send(ProgressEvent {
+                    current,
+                    total,
+                    message: msg.to_string(),
+                });
+            })
+            .map_err(|e| format!("apply: {e}"))?;
 
         let cache = ThumbnailCache::new(
             ctx.root.root().join(".progest/thumbs"),
@@ -232,6 +242,11 @@ pub async fn import_apply(
             .collect();
 
         if !thumb_requests.is_empty() {
+            let _ = on_progress.send(ProgressEvent {
+                current: 0,
+                total: 0,
+                message: "Generating thumbnails\u{2026}".to_string(),
+            });
             let _ = thumbnail::generate_batch(&thumb_requests, &cache, false);
         }
 

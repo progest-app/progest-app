@@ -98,7 +98,11 @@ export function DirectoryInspector(props: { dir: string }) {
       // `progest lint`. Failure here is non-fatal — the accepts edit
       // already landed; surface the error and let the user retry.
       try {
-        const stats = await lintRun();
+        const stats = await lintRun((e) => {
+          if (e.total > 0) {
+            setLintNote(`Checking ${e.current}/${e.total} files\u{2026}`);
+          }
+        });
         setLintNote(
           `Re-lint: ${stats.scanned} files · naming ${stats.naming} · placement ${stats.placement} · sequence ${stats.sequence}`,
         );

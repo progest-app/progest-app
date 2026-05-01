@@ -1,9 +1,10 @@
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 use progest_core::template;
 
 use crate::commands::no_project_error;
+use crate::progress::ProgressEvent;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,8 +48,9 @@ pub fn template_export(
     out_path: String,
     include: String,
     name: Option<String>,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<ExportResultWire, String> {
+    let state = app.state::<AppState>();
     let guard = state.project.lock().expect("project mutex poisoned");
     let ctx = guard.as_ref().ok_or_else(no_project_error)?;
 
@@ -112,23 +114,38 @@ pub fn template_preview(template_path: String) -> Result<TemplatePreviewWire, St
 }
 
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn template_apply(
+pub async fn template_apply(
     template_path: String,
-    state: State<'_, AppState>,
+    on_progress: tauri::ipc::Channel<ProgressEvent>,
+    app: AppHandle,
 ) -> Result<ApplyResultWire, String> {
-    let guard = state.project.lock().expect("project mutex poisoned");
-    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
 
-    let content =
-        std::fs::read_to_string(&template_path).map_err(|e| format!("read template: {e}"))?;
-    let doc = template::deserialize(&content).map_err(|e| format!("parse template: {e}"))?;
-    let report =
-        template::apply_template(ctx.root.root(), &doc).map_err(|e| format!("apply: {e}"))?;
+        let content =
+            std::fs::read_to_string(&template_path).map_err(|e| format!("read template: {e}"))?;
+        let doc = template::deserialize(&content).map_err(|e| format!("parse template: {e}"))?;
+        let report = template::apply_template_with_progress(
+            ctx.root.root(),
+            &doc,
+            &|current, total, msg| {
+                let _ = on_progress.send(ProgressEvent {
+                    current,
+                    total,
+                    message: msg.to_string(),
+                });
+            },
+        )
+        .map_err(|e| format!("apply: {e}"))?;
 
-    Ok(ApplyResultWire {
-        directories_created: report.directories_created,
-        configs_written: report.configs_written,
-        dirmeta_written: report.dirmeta_written,
+        Ok(ApplyResultWire {
+            directories_created: report.directories_created,
+            configs_written: report.configs_written,
+            dirmeta_written: report.dirmeta_written,
+        })
     })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }

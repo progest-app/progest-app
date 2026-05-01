@@ -55,12 +55,25 @@ impl<'a> Reconciler<'a> {
     /// - sidecar whose companion file is missing → recorded in
     ///   [`ScanReport::orphan_metas`] without any side effects
     pub fn full_scan(&self) -> Result<ScanReport, ReconcileError> {
+        self.full_scan_with_progress(&|_, _, _| {})
+    }
+
+    /// Walk the project from the root, reconciling every non-ignored file
+    /// with the index and `.meta` sidecars, reporting progress via
+    /// `on_progress(current, total, message)`.
+    ///
+    /// When `total` is 0 the phase is indeterminate (file discovery).
+    pub fn full_scan_with_progress(
+        &self,
+        on_progress: &dyn Fn(u64, u64, &str),
+    ) -> Result<ScanReport, ReconcileError> {
         let rules = IgnoreRules::load(self.fs)?;
         let scanner = Scanner::new(self.fs.root().to_path_buf(), rules);
 
         let mut files: HashMap<ProjectPath, ScanEntry> = HashMap::new();
         let mut metas: Vec<ProjectPath> = Vec::new();
 
+        on_progress(0, 0, "Scanning files\u{2026}");
         for entry in scanner {
             let entry = entry?;
             if entry.kind != EntryKind::File {
@@ -86,8 +99,14 @@ impl<'a> Reconciler<'a> {
         let mut file_entries: Vec<ScanEntry> = files.into_values().collect();
         file_entries.sort_by(|a, b| a.path.as_str().cmp(b.path.as_str()));
 
+        let total = file_entries.len() as u64;
+        let throttle = progress_throttle(total);
         let mut outcomes = Vec::with_capacity(file_entries.len());
-        for entry in &file_entries {
+        for (i, entry) in file_entries.iter().enumerate() {
+            let current = (i + 1) as u64;
+            if should_report(current, total, throttle) {
+                on_progress(current, total, "Indexing files\u{2026}");
+            }
             let existing = existing_by_path.remove(&entry.path);
             let outcome = self.reconcile_present_file(entry, existing)?;
             outcomes.push(outcome);
@@ -395,4 +414,13 @@ fn companion_of(path: &ProjectPath) -> Option<ProjectPath> {
 fn system_time_to_unix(t: SystemTime) -> i64 {
     t.duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+/// Compute how often to fire progress callbacks to cap at ~100 updates.
+fn progress_throttle(total: u64) -> u64 {
+    if total <= 200 { 1 } else { total / 100 }
+}
+
+fn should_report(current: u64, total: u64, throttle: u64) -> bool {
+    current == total || current.is_multiple_of(throttle)
 }

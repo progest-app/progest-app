@@ -1,7 +1,22 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 // Wire types mirror crates/progest-tauri/src/commands.rs.
 // Keep field names in sync with the Rust Serialize derives.
+
+export type ProgressEvent = {
+  current: number;
+  total: number;
+  message: string;
+};
+
+function makeChannel(onProgress?: (e: ProgressEvent) => void): Channel<ProgressEvent> {
+  const ch = new Channel<ProgressEvent>();
+  if (onProgress) {
+    // eslint-disable-next-line unicorn/prefer-add-event-listener -- Tauri Channel API uses onmessage
+    ch.onmessage = onProgress;
+  }
+  return ch;
+}
 
 export type ProjectInfo = {
   root: string;
@@ -252,17 +267,33 @@ export async function projectInitPreview(path: string): Promise<InitPreview> {
   }
 }
 
-export async function projectInitNew(parent: string, name: string): Promise<InitResult> {
+export async function projectInitNew(
+  parent: string,
+  name: string,
+  onProgress?: (e: ProgressEvent) => void,
+): Promise<InitResult> {
   try {
-    return await invoke<InitResult>("project_init_new", { parent, name });
+    return await invoke<InitResult>("project_init_new", {
+      parent,
+      name,
+      onProgress: makeChannel(onProgress),
+    });
   } catch (e) {
     throw toIpcError(e);
   }
 }
 
-export async function projectInitExisting(path: string, name: string | null): Promise<InitResult> {
+export async function projectInitExisting(
+  path: string,
+  name: string | null,
+  onProgress?: (e: ProgressEvent) => void,
+): Promise<InitResult> {
   try {
-    return await invoke<InitResult>("project_init_existing", { path, name });
+    return await invoke<InitResult>("project_init_existing", {
+      path,
+      name,
+      onProgress: makeChannel(onProgress),
+    });
   } catch (e) {
     throw toIpcError(e);
   }
@@ -455,9 +486,15 @@ export async function importPreview(requests: ImportRequestWire[]): Promise<Impo
   }
 }
 
-export async function importApply(requests: ImportRequestWire[]): Promise<ImportOutcome> {
+export async function importApply(
+  requests: ImportRequestWire[],
+  onProgress?: (e: ProgressEvent) => void,
+): Promise<ImportOutcome> {
   try {
-    return await invoke<ImportOutcome>("import_apply", { requests });
+    return await invoke<ImportOutcome>("import_apply", {
+      requests,
+      onProgress: makeChannel(onProgress),
+    });
   } catch (e) {
     throw toIpcError(e);
   }
@@ -518,9 +555,11 @@ export type LintRunResponse = {
   scanned: number;
 };
 
-export async function lintRun(): Promise<LintRunResponse> {
+export async function lintRun(onProgress?: (e: ProgressEvent) => void): Promise<LintRunResponse> {
   try {
-    return await invoke<LintRunResponse>("lint_run");
+    return await invoke<LintRunResponse>("lint_run", {
+      onProgress: makeChannel(onProgress),
+    });
   } catch (e) {
     throw toIpcError(e);
   }

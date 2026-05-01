@@ -1,22 +1,10 @@
 //! `lint_run` IPC — recompute the project's lint report and write the
 //! resulting violations into the index.
-//!
-//! Used by the directory inspector after an `[accepts]` edit so the
-//! `is:violation` / `is:misplaced` queries (and the placement badges
-//! that derive from them) reflect the new declaration. Without this
-//! refresh, badges would stay stale until the user shells out to
-//! `progest lint` themselves — exactly the gap the M3 #9 inspector is
-//! supposed to close.
-//!
-//! Mirrors `progest-cli`'s lint command: it loads `rules.toml`,
-//! `schema.toml [alias]`, and `project.toml [cleanup]`, walks the
-//! project's indexed paths, runs `core::lint::lint_paths`, and persists
-//! the report through `write_to_index`.
 
 use progest_core::accepts::{AliasCatalog, SchemaLoad, load_alias_catalog};
 use progest_core::fs::ProjectPath;
 use progest_core::index::Index;
-use progest_core::lint::{LintOptions, lint_paths, write_to_index};
+use progest_core::lint::{LintOptions, lint_paths_with_progress, write_to_index};
 use progest_core::meta::StdMetaStore;
 use progest_core::naming::{CleanupConfig, extract_cleanup_config};
 use progest_core::project::ProjectDocument;
@@ -25,9 +13,10 @@ use progest_core::rules::{
     load_document,
 };
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 use crate::commands::no_project_error;
+use crate::progress::ProgressEvent;
 use crate::state::{AppState, ProjectContext};
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,50 +28,62 @@ pub struct LintRunResponse {
 }
 
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn lint_run(state: State<'_, AppState>) -> Result<LintRunResponse, String> {
-    let guard = state.project.lock().expect("project mutex poisoned");
-    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+pub async fn lint_run(
+    on_progress: tauri::ipc::Channel<ProgressEvent>,
+    app: AppHandle,
+) -> Result<LintRunResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
 
-    let ruleset = load_ruleset(ctx)?;
-    let catalog = load_alias_catalog_for_ctx(ctx);
-    let cleanup = load_cleanup(ctx)?;
+        let ruleset = load_ruleset(ctx)?;
+        let catalog = load_alias_catalog_for_ctx(ctx);
+        let cleanup = load_cleanup(ctx)?;
 
-    // Walk the index for the path set rather than re-walking the FS —
-    // the inspector triggers this synchronously on save, and reusing
-    // the indexed list keeps the round-trip predictable. A subsequent
-    // `progest scan` will catch any FS additions the index hasn't seen
-    // yet.
-    let rows = ctx
-        .index
-        .list_files()
-        .map_err(|e| format!("list indexed files: {e}"))?;
-    let paths: Vec<ProjectPath> = rows.iter().map(|r| r.path.clone()).collect();
+        let rows = ctx
+            .index
+            .list_files()
+            .map_err(|e| format!("list indexed files: {e}"))?;
+        let paths: Vec<ProjectPath> = rows.iter().map(|r| r.path.clone()).collect();
 
-    let store = StdMetaStore::new(ctx.fs.clone());
-    let opts = LintOptions {
-        ruleset: &ruleset,
-        alias_catalog: &catalog,
-        compound_exts: BUILTIN_COMPOUND_EXTS,
-        cleanup_cfg: &cleanup,
-        explain: false,
-    };
-    let report = lint_paths(store.filesystem(), &store, &paths, &opts)
+        let store = StdMetaStore::new(ctx.fs.clone());
+        let opts = LintOptions {
+            ruleset: &ruleset,
+            alias_catalog: &catalog,
+            compound_exts: BUILTIN_COMPOUND_EXTS,
+            cleanup_cfg: &cleanup,
+            explain: false,
+        };
+        let report = lint_paths_with_progress(
+            store.filesystem(),
+            &store,
+            &paths,
+            &opts,
+            &|current, total, msg| {
+                let _ = on_progress.send(ProgressEvent {
+                    current,
+                    total,
+                    message: msg.to_string(),
+                });
+            },
+        )
         .map_err(|e| format!("running lint pass: {e}"))?;
 
-    let visited: Vec<_> = rows.into_iter().map(|r| r.file_id).collect();
-    write_to_index(&ctx.index, &visited, &report)
-        .map_err(|e| format!("write violations to index: {e}"))?;
+        let visited: Vec<_> = rows.into_iter().map(|r| r.file_id).collect();
+        write_to_index(&ctx.index, &visited, &report)
+            .map_err(|e| format!("write violations to index: {e}"))?;
 
-    Ok(LintRunResponse {
-        naming: report.naming.len(),
-        placement: report.placement.len(),
-        sequence: report.sequence.len(),
-        scanned: paths.len(),
+        Ok(LintRunResponse {
+            naming: report.naming.len(),
+            placement: report.placement.len(),
+            sequence: report.sequence.len(),
+            scanned: paths.len(),
+        })
     })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
-
-// --- helpers ---------------------------------------------------------------
 
 fn load_ruleset(ctx: &ProjectContext) -> Result<CompiledRuleSet, String> {
     let path = ctx.root.rules_toml();

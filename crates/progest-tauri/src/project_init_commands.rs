@@ -23,8 +23,9 @@ use progest_core::meta::StdMetaStore;
 use progest_core::project::{InitPreview, ProjectError, ProjectRoot, initialize, preview_init};
 use progest_core::reconcile::Reconciler;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
+use crate::progress::ProgressEvent;
 use crate::recent;
 use crate::state::{AppState, ProjectContext, ProjectInfo};
 
@@ -71,55 +72,64 @@ pub fn project_init_preview(path: String) -> Result<InitPreviewWire, String> {
 }
 
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn project_init_new(
+pub async fn project_init_new(
     parent: String,
     name: String,
-    state: State<'_, AppState>,
+    on_progress: tauri::ipc::Channel<ProgressEvent>,
+    app: AppHandle,
 ) -> Result<InitResultWire, String> {
-    let parent_path = Path::new(&parent);
-    if !parent_path.is_dir() {
-        return Err(format!("parent directory does not exist: `{parent}`"));
-    }
-    validate_project_name(&name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let parent_path = Path::new(&parent);
+        if !parent_path.is_dir() {
+            return Err(format!("parent directory does not exist: `{parent}`"));
+        }
+        validate_project_name(&name)?;
 
-    let target = parent_path.join(&name);
-    if target.exists() {
-        return Err(format!(
-            "target already exists: `{}` — pick a different name or initialize the existing directory instead",
-            target.display(),
-        ));
-    }
+        let target = parent_path.join(&name);
+        if target.exists() {
+            return Err(format!(
+                "target already exists: `{}` — pick a different name or initialize the existing directory instead",
+                target.display(),
+            ));
+        }
 
-    init_and_attach(&target, &name, &state)
+        init_and_attach(&target, &name, &on_progress, &app)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)]
-pub fn project_init_existing(
+pub async fn project_init_existing(
     path: String,
     name: Option<String>,
-    state: State<'_, AppState>,
+    on_progress: tauri::ipc::Channel<ProgressEvent>,
+    app: AppHandle,
 ) -> Result<InitResultWire, String> {
-    let target = Path::new(&path);
-    if !target.is_dir() {
-        return Err(format!("not a directory: `{path}`"));
-    }
-    let display_name = name
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| target_basename(target));
-    validate_project_name(&display_name)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = Path::new(&path);
+        if !target.is_dir() {
+            return Err(format!("not a directory: `{path}`"));
+        }
+        let display_name = name
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| target_basename(target));
+        validate_project_name(&display_name)?;
 
-    init_and_attach(target, &display_name, &state)
+        init_and_attach(target, &display_name, &on_progress, &app)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 fn init_and_attach(
     target: &Path,
     name: &str,
-    state: &State<'_, AppState>,
+    on_progress: &tauri::ipc::Channel<ProgressEvent>,
+    app: &AppHandle,
 ) -> Result<InitResultWire, String> {
     let root = initialize(target, name).map_err(format_project_error)?;
-    let scan_stats = run_initial_scan(&root)?;
+    let scan_stats = run_initial_scan(&root, on_progress)?;
     let ctx = ProjectContext::open(root)?;
     let info = ProjectInfo::from_context(&ctx);
 
@@ -131,6 +141,7 @@ fn init_and_attach(
         tracing::warn!("could not write recent-projects log: {e}");
     }
 
+    let state = app.state::<AppState>();
     let mut guard = state.project.lock().expect("project mutex poisoned");
     *guard = Some(ctx);
 
@@ -148,14 +159,23 @@ struct ScanStats {
     orphan_metas: u64,
 }
 
-fn run_initial_scan(root: &ProjectRoot) -> Result<ScanStats, String> {
+fn run_initial_scan(
+    root: &ProjectRoot,
+    on_progress: &tauri::ipc::Channel<ProgressEvent>,
+) -> Result<ScanStats, String> {
     let fs = StdFileSystem::new(root.root().to_path_buf());
     let meta = StdMetaStore::new(fs.clone());
     let index = SqliteIndex::open(&root.index_db())
         .map_err(|e| format!("opening index `{}`: {e}", root.index_db().display()))?;
     let reconciler = Reconciler::new(&fs, &meta, &index);
     let report = reconciler
-        .full_scan()
+        .full_scan_with_progress(&|current, total, msg| {
+            let _ = on_progress.send(ProgressEvent {
+                current,
+                total,
+                message: msg.to_string(),
+            });
+        })
         .map_err(|e| format!("initial scan failed: {e}"))?;
     Ok(ScanStats {
         scanned: u64::try_from(report.added() + report.updated() + report.unchanged())
@@ -165,10 +185,6 @@ fn run_initial_scan(root: &ProjectRoot) -> Result<ScanStats, String> {
     })
 }
 
-/// Lightweight name validator — keeps the dialog from accepting names
-/// that would be confusing on disk (path separators, leading dots, empty)
-/// without trying to be a full filename validator. The OS will reject
-/// truly-invalid names from `mkdir` and that error will reach the user.
 fn validate_project_name(name: &str) -> Result<(), String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {

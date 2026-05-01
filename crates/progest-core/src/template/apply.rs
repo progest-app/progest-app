@@ -11,9 +11,30 @@ pub fn apply_template(
     project_root: &Path,
     template: &TemplateDocument,
 ) -> Result<ApplyReport, TemplateError> {
+    apply_template_with_progress(project_root, template, &|_, _, _| {})
+}
+
+pub fn apply_template_with_progress(
+    project_root: &Path,
+    template: &TemplateDocument,
+    on_progress: &dyn Fn(u64, u64, &str),
+) -> Result<ApplyReport, TemplateError> {
     let mut report = ApplyReport::default();
 
+    let config_count = [
+        &template.include.rules_toml,
+        &template.include.schema_toml,
+        &template.include.views_toml,
+    ]
+    .iter()
+    .filter(|c| c.is_some())
+    .count();
+    let total = (template.directories.len() + config_count + template.dirmeta.len()) as u64;
+    let mut step: u64 = 0;
+
     for dir in &template.directories {
+        step += 1;
+        on_progress(step, total, "Creating directories\u{2026}");
         let abs = project_root.join(dir);
         if !abs.exists() {
             fs::create_dir_all(&abs)?;
@@ -24,19 +45,27 @@ pub fn apply_template(
     let dot_dir = project_root.join(DOT_DIR);
 
     if let Some(content) = &template.include.rules_toml {
+        step += 1;
+        on_progress(step, total, "Writing rules.toml\u{2026}");
         fs::write(dot_dir.join(RULES_TOML_FILENAME), content)?;
         report.configs_written.push("rules.toml".to_owned());
     }
     if let Some(content) = &template.include.schema_toml {
+        step += 1;
+        on_progress(step, total, "Writing schema.toml\u{2026}");
         fs::write(dot_dir.join(SCHEMA_TOML_FILENAME), content)?;
         report.configs_written.push("schema.toml".to_owned());
     }
     if let Some(content) = &template.include.views_toml {
+        step += 1;
+        on_progress(step, total, "Writing views.toml\u{2026}");
         fs::write(dot_dir.join(VIEWS_TOML_FILENAME), content)?;
         report.configs_written.push("views.toml".to_owned());
     }
 
     for entry in &template.dirmeta {
+        step += 1;
+        on_progress(step, total, "Writing dirmeta\u{2026}");
         let target_dir = if entry.path == "." {
             project_root.to_path_buf()
         } else {

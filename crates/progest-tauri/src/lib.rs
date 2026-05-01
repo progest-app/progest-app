@@ -10,6 +10,7 @@ mod delete_commands;
 mod file_inspector_commands;
 mod import_commands;
 mod lint_commands;
+mod progress;
 mod project_init_commands;
 mod recent;
 mod state;

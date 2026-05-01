@@ -13,9 +13,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useProject } from "@/lib/project-context";
-import { IpcError, isAlreadyInitialized, projectInitPreview, type InitPreview } from "@/lib/ipc";
+import {
+  IpcError,
+  isAlreadyInitialized,
+  projectInitPreview,
+  type InitPreview,
+  type ProgressEvent,
+} from "@/lib/ipc";
 
 /**
  * Confirmation dialog for `progest init` from the desktop app.
@@ -107,6 +114,7 @@ function InitForm() {
 
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
+  const [progress, setProgress] = React.useState<ProgressEvent | null>(null);
 
   const pickParent = async () => {
     const picked = await openDialog({
@@ -144,12 +152,15 @@ function InitForm() {
   const handleSubmit = async () => {
     setSubmitting(true);
     setSubmitError(null);
+    setProgress(null);
     try {
       if (mode === "new") {
-        await ctx.initNew(parent, name.trim());
+        await ctx.initNew(parent, name.trim(), (e) => setProgress(e));
       } else {
         const trimmed = existingName.trim();
-        await ctx.initExisting(existingPath, trimmed.length > 0 ? trimmed : null);
+        await ctx.initExisting(existingPath, trimmed.length > 0 ? trimmed : null, (e) =>
+          setProgress(e),
+        );
       }
       ctx.closeInitDialog();
     } catch (e) {
@@ -157,6 +168,7 @@ function InitForm() {
       setSubmitError(msg);
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
   };
 
@@ -208,25 +220,29 @@ function InitForm() {
         </ToggleGroupItem>
       </ToggleGroup>
 
-      <div className="grid gap-3">
-        {mode === "new" ? (
-          <NewFields
-            parent={parent}
-            name={name}
-            onPickParent={() => void pickParent()}
-            onChangeName={setName}
-          />
-        ) : (
-          <ExistingFields
-            path={existingPath}
-            name={existingName}
-            onPickPath={() => void pickExisting()}
-            onChangeName={setExistingName}
-          />
-        )}
+      {submitting ? (
+        <ProgressPanel progress={progress} />
+      ) : (
+        <div className="grid gap-3">
+          {mode === "new" ? (
+            <NewFields
+              parent={parent}
+              name={name}
+              onPickParent={() => void pickParent()}
+              onChangeName={setName}
+            />
+          ) : (
+            <ExistingFields
+              path={existingPath}
+              name={existingName}
+              onPickPath={() => void pickExisting()}
+              onChangeName={setExistingName}
+            />
+          )}
 
-        <PreviewPanel preview={preview} loading={previewLoading} error={previewError} />
-      </div>
+          <PreviewPanel preview={preview} loading={previewLoading} error={previewError} />
+        </div>
+      )}
 
       {submitError && !showOpenInstead ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
@@ -400,4 +416,20 @@ function joinPath(parent: string, name: string): string {
 function basename(path: string): string {
   const m = path.match(/[^\\/]+$/);
   return m ? m[0] : "";
+}
+
+function ProgressPanel(props: { progress: ProgressEvent | null }) {
+  const p = props.progress;
+  const pct = p && p.total > 0 ? (p.current / p.total) * 100 : undefined;
+  return (
+    <div className="grid gap-2 py-4">
+      <div className="text-sm text-muted-foreground">{p?.message ?? "Initializing\u{2026}"}</div>
+      <Progress value={pct} />
+      {p && p.total > 0 ? (
+        <div className="text-right text-xs text-muted-foreground">
+          {p.current.toLocaleString()} / {p.total.toLocaleString()}
+        </div>
+      ) : null}
+    </div>
+  );
 }

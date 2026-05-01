@@ -115,6 +115,15 @@ impl<'a> Import<'a> {
 
     /// Apply all clean ops in the preview.
     pub fn apply(&self, preview: &ImportPreview) -> Result<ImportOutcome, ImportApplyError> {
+        self.apply_with_progress(preview, &|_, _, _| {})
+    }
+
+    /// Apply all clean ops with per-file progress reporting.
+    pub fn apply_with_progress(
+        &self,
+        preview: &ImportPreview,
+        on_progress: &dyn Fn(u64, u64, &str),
+    ) -> Result<ImportOutcome, ImportApplyError> {
         let conflict_count = preview.conflicting_ops().count();
         if conflict_count > 0 {
             return Err(ImportApplyError::HasConflicts {
@@ -138,14 +147,14 @@ impl<'a> Import<'a> {
             .create_dir_all(&staging)
             .map_err(|source| ImportApplyError::StagingSetup { source })?;
 
-        let staged = self.stage_all(&clean_ops, &staging)?;
+        let staged = self.stage_all(&clean_ops, &staging, on_progress)?;
         self.commit_all(&staged)?;
 
         let auto_group = (staged.len() >= 2).then(|| Uuid::now_v7().simple().to_string());
         let unified = unified_caller_group(&staged);
         let outcome_group = unified.or(auto_group.clone());
 
-        let (imported, warnings) = self.post_commit(&staged, auto_group.as_deref());
+        let (imported, warnings) = self.post_commit(&staged, auto_group.as_deref(), on_progress);
 
         let _ = self.fs.remove_file(&staging);
 
@@ -161,11 +170,14 @@ impl<'a> Import<'a> {
         &self,
         staged: &[StagedImport],
         auto_group: Option<&str>,
+        on_progress: &dyn Fn(u64, u64, &str),
     ) -> (Vec<ImportedFile>, Vec<ImportWarning>) {
+        let total = staged.len() as u64;
         let mut warnings = Vec::new();
         let mut imported = Vec::new();
 
-        for s in staged {
+        for (i, s) in staged.iter().enumerate() {
+            on_progress((i + 1) as u64, total, "Indexing files\u{2026}");
             let file_id = FileId::new_v7();
             let abs_dest = self.project_root.join(s.op.dest.as_str());
 
@@ -288,10 +300,18 @@ impl<'a> Import<'a> {
         &self,
         ops: &[&ImportOp],
         staging: &ProjectPath,
+        on_progress: &dyn Fn(u64, u64, &str),
     ) -> Result<Vec<StagedImport>, ImportApplyError> {
+        let total = ops.len() as u64;
         let mut staged = Vec::with_capacity(ops.len());
 
         for (i, op) in ops.iter().enumerate() {
+            let label = match op.mode {
+                ImportMode::Copy => "Copying files\u{2026}",
+                ImportMode::Move => "Moving files\u{2026}",
+            };
+            on_progress((i + 1) as u64, total, label);
+
             let stage_path = staging.join(format!("{i}"))?;
             let src = std::path::Path::new(&op.source);
 

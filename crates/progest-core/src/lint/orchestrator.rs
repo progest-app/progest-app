@@ -73,22 +73,32 @@ pub fn lint_paths<F: FileSystem, M: MetaStore>(
     paths: &[ProjectPath],
     opts: &LintOptions<'_>,
 ) -> Result<LintReport, LintError> {
+    lint_paths_with_progress(fs, meta_store, paths, opts, &|_, _, _| {})
+}
+
+/// Run lint across `paths` with per-file progress reporting.
+pub fn lint_paths_with_progress<F: FileSystem, M: MetaStore>(
+    fs: &F,
+    meta_store: &M,
+    paths: &[ProjectPath],
+    opts: &LintOptions<'_>,
+    on_progress: &dyn Fn(u64, u64, &str),
+) -> Result<LintReport, LintError> {
     let mut naming: Vec<Violation> = Vec::new();
     let mut placement: Vec<Violation> = Vec::new();
 
-    // Per-directory cache of the computed `EffectiveAccepts`. We walk
-    // distinct parent dirs once per lint pass instead of once per file
-    // — dozens of siblings share the same parent's dirmeta chain.
+    let total = paths.len() as u64;
+    let throttle = progress_throttle(total);
+
     let mut effective_cache: HashMap<ProjectPath, Option<EffectiveAccepts>> = HashMap::new();
-    // Also cache per-dir raw `[accepts]` so the chain walk doesn't
-    // re-read the same `.dirmeta.toml` for every descendant.
     let mut raw_cache: HashMap<ProjectPath, Option<RawAccepts>> = HashMap::new();
-    // file_id lookup so drift violations can carry it when the meta
-    // exists. Kept separate from meta loading so meta itself lives
-    // only as long as the per-file evaluation.
     let mut file_ids: HashMap<ProjectPath, FileId> = HashMap::new();
 
-    for p in paths {
+    for (i, p) in paths.iter().enumerate() {
+        let current = (i + 1) as u64;
+        if should_report(current, total, throttle) {
+            on_progress(current, total, "Checking files\u{2026}");
+        }
         let meta = try_load_meta(meta_store, p)?;
         if let Some(m) = &meta {
             file_ids.insert(p.clone(), m.file_id);
@@ -290,6 +300,14 @@ fn sort_by_path_then_rule(vs: &mut [Violation]) {
             .cmp(b.path.as_str())
             .then_with(|| a.rule_id.as_str().cmp(b.rule_id.as_str()))
     });
+}
+
+fn progress_throttle(total: u64) -> u64 {
+    if total <= 200 { 1 } else { total / 100 }
+}
+
+fn should_report(current: u64, total: u64, throttle: u64) -> bool {
+    current == total || current.is_multiple_of(throttle)
 }
 
 fn build_summary(

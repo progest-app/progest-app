@@ -10,6 +10,7 @@ import {
   projectRecentClear,
   projectRecentList,
   type InitResult,
+  type ProgressEvent,
   type ProjectInfo,
   type RecentProject,
 } from "@/lib/ipc";
@@ -39,9 +40,17 @@ type ProjectContextValue = {
    *  init dialog when preview detects an existing `.progest/`. */
   openByPath: (path: string) => Promise<void>;
   /** Initialize a brand-new project (mkdir parent/name + init + scan). */
-  initNew: (parent: string, name: string) => Promise<InitResult>;
+  initNew: (
+    parent: string,
+    name: string,
+    onProgress?: (e: ProgressEvent) => void,
+  ) => Promise<InitResult>;
   /** Initialize at an existing directory (init + scan). */
-  initExisting: (path: string, name: string | null) => Promise<InitResult>;
+  initExisting: (
+    path: string,
+    name: string | null,
+    onProgress?: (e: ProgressEvent) => void,
+  ) => Promise<InitResult>;
   /** Open the create-project dialog from anywhere in the app. */
   openInitDialog: (mode: InitDialogMode) => void;
   /** Dialog open state, consumed by the dialog component. */
@@ -157,8 +166,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   // them inline next to the form fields. They still update the context
   // (project + recent) on success so callers don't need to refresh.
   const initNew = React.useCallback(
-    async (parent: string, name: string) => {
-      const result = await projectInitNew(parent, name);
+    async (parent: string, name: string, onProgress?: (e: ProgressEvent) => void) => {
+      const result = await projectInitNew(parent, name, onProgress);
       setProject(result.project);
       setError(null);
       await refreshRecent();
@@ -168,8 +177,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   );
 
   const initExisting = React.useCallback(
-    async (path: string, name: string | null) => {
-      const result = await projectInitExisting(path, name);
+    async (path: string, name: string | null, onProgress?: (e: ProgressEvent) => void) => {
+      const result = await projectInitExisting(path, name, onProgress);
       setProject(result.project);
       setError(null);
       await refreshRecent();
