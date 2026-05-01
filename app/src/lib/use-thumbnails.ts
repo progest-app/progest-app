@@ -1,15 +1,18 @@
 import * as React from "react";
 
 import { thumbnailPaths } from "@/lib/ipc";
+import { useProject } from "@/lib/project-context";
 
 /**
  * Batch-fetch thumbnail data URLs for a list of file IDs.
  *
  * Returns a map of `file_id → data:image/webp;base64,...` that can be
  * used directly as `<img src>`.  Files without a cached thumbnail are
- * omitted.
+ * omitted. Re-fetches when the file ID set changes or when
+ * `refreshTick` increments (e.g. after thumbnail generation).
  */
 export function useThumbnails(fileIds: string[]): Record<string, string> {
+  const { refreshTick } = useProject();
   const [urls, setUrls] = React.useState<Record<string, string>>({});
   const key = fileIds.join(",");
 
@@ -32,7 +35,7 @@ export function useThumbnails(fileIds: string[]): Record<string, string> {
     return () => {
       cancelled = true;
     };
-  }, [key]);
+  }, [key, refreshTick]);
 
   return urls;
 }

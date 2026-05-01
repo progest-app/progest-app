@@ -4,7 +4,7 @@ pub mod generate;
 pub mod types;
 
 pub use cache::ThumbnailCache;
-pub use generate::generate_batch;
+pub use generate::{generate_batch, generate_batch_with_progress};
 pub use types::*;
 
 use std::path::Path;

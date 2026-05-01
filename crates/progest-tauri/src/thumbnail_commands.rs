@@ -12,11 +12,15 @@ use std::str::FromStr;
 use base64::Engine;
 use progest_core::identity::FileId;
 use progest_core::index::Index;
-use progest_core::thumbnail::{CacheKey, DEFAULT_CACHE_MAX_BYTES, DEFAULT_MAX_DIM, ThumbnailCache};
+use progest_core::thumbnail::{
+    CacheKey, DEFAULT_CACHE_MAX_BYTES, DEFAULT_MAX_DIM, ThumbnailCache,
+    generate_batch_with_progress, requests_from_index,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::commands::no_project_error;
+use crate::progress::ProgressEvent;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +68,51 @@ pub async fn thumbnail_paths(
         }
 
         Ok(ThumbnailUrlsResponse { urls })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ThumbnailGenerateResponse {
+    pub generated: u64,
+    pub cached: u64,
+    pub skipped: u64,
+}
+
+/// Generate thumbnails for all indexed files, reporting progress via
+/// the Tauri channel. Runs on the blocking thread pool so the UI
+/// stays responsive during heavy image/video processing.
+#[tauri::command]
+pub async fn thumbnail_generate(
+    on_progress: tauri::ipc::Channel<ProgressEvent>,
+    app: AppHandle,
+) -> Result<ThumbnailGenerateResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+        let cache = ThumbnailCache::new(
+            ctx.root.root().join(".progest/thumbs"),
+            DEFAULT_CACHE_MAX_BYTES,
+        );
+
+        let requests = requests_from_index(&ctx.index, ctx.root.root(), DEFAULT_MAX_DIM);
+        let report =
+            generate_batch_with_progress(&requests, &cache, false, &|current, total, msg| {
+                let _ = on_progress.send(ProgressEvent {
+                    current,
+                    total,
+                    message: msg.to_string(),
+                });
+            });
+
+        Ok(ThumbnailGenerateResponse {
+            generated: report.generated as u64,
+            cached: report.cached as u64,
+            skipped: report.skipped as u64,
+        })
     })
     .await
     .map_err(|e| format!("join: {e}"))?

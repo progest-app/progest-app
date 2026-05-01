@@ -19,6 +19,7 @@ import * as React from "react";
 
 import { useAiCommands } from "./ai-commands";
 import { useFileCommands } from "./file-commands";
+import { useMaintenanceCommands } from "./maintenance-commands";
 import { useProjectCommands } from "./project-commands";
 import { useThemeCommands } from "./theme-commands";
 import type { PaletteCommand } from "./types";
@@ -29,9 +30,13 @@ export { fuzzyMatch } from "./types";
 export function usePaletteCommands(): PaletteCommand[] {
   const project = useProjectCommands();
   const file = useFileCommands();
+  const maintenance = useMaintenanceCommands();
   const theme = useThemeCommands();
   const ai = useAiCommands();
-  return React.useMemo(() => [...project, ...file, ...theme, ...ai], [project, file, theme, ai]);
+  return React.useMemo(
+    () => [...project, ...file, ...maintenance, ...theme, ...ai],
+    [project, file, maintenance, theme, ai],
+  );
 }
 
 /**
