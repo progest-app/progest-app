@@ -5,10 +5,11 @@ import { CommandPalette } from "@/components/command-palette";
 import { DirectoryInspector } from "@/components/directory-inspector";
 import { DragDropProvider, DropOverlay, useDropZone } from "@/components/drag-drop-overlay";
 import { dirPathAtPoint } from "@/components/tree-view";
-import { FileInspector } from "@/components/file-inspector";
+import { FileInspector, type FileInspectorHandle } from "@/components/file-inspector";
 import { FlatView } from "@/components/flat-view";
 import { ImportModal } from "@/components/import-modal";
 import { InitProjectDialog } from "@/components/init-project-dialog";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { StatusBar } from "@/components/status-bar";
 import { TreeView } from "@/components/tree-view";
 import {
@@ -18,10 +19,19 @@ import {
   type PanelVisibility,
 } from "@/components/title-bar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FlatViewSummaryProvider } from "@/lib/flat-view-context";
 import { ProjectProvider, useProject } from "@/lib/project-context";
+import { SettingsProvider, useSettings } from "@/lib/settings-context";
 import { ThemeProvider } from "next-themes";
 import type { DirEntry, RichSearchHit } from "@/lib/ipc";
 import { Toaster } from "@/components/ui/sonner";
@@ -64,9 +74,11 @@ export function App() {
     >
       <TooltipProvider delayDuration={150}>
         <ProjectProvider>
-          <FlatViewSummaryProvider>
-            <Shell />
-          </FlatViewSummaryProvider>
+          <SettingsProvider>
+            <FlatViewSummaryProvider>
+              <Shell />
+            </FlatViewSummaryProvider>
+          </SettingsProvider>
         </ProjectProvider>
         <Toaster position="bottom-right" />
       </TooltipProvider>
@@ -77,6 +89,26 @@ export function App() {
 function Shell() {
   const { project } = useProject();
   const [selection, setSelection] = React.useState<Selection>(null);
+  const [pendingConfirm, setPendingConfirm] = React.useState<{
+    next: Selection;
+  } | null>(null);
+  const inspectorRef = React.useRef<FileInspectorHandle>(null);
+  const settings = useSettings();
+
+  const guardedSetSelection = React.useCallback(
+    (next: Selection) => {
+      if (
+        selection?.kind === "file" &&
+        inspectorRef.current?.hasPendingSuggestions() &&
+        next !== selection
+      ) {
+        setPendingConfirm({ next });
+        return;
+      }
+      setSelection(next);
+    },
+    [selection],
+  );
   // Panel visibility lives at the shell level so the titlebar toggles
   // can drive the Resizable layout. Persisted to localStorage so user
   // preferences survive a reload.
@@ -101,18 +133,27 @@ function Shell() {
     setSelection(null);
   }, [project?.root]);
 
-  const onPickFlatHit = React.useCallback((hit: RichSearchHit) => {
-    setSelection({ kind: "file", hit });
-  }, []);
+  const onPickFlatHit = React.useCallback(
+    (hit: RichSearchHit) => {
+      guardedSetSelection({ kind: "file", hit });
+    },
+    [guardedSetSelection],
+  );
 
-  const onPickTreeFile = React.useCallback((entry: DirEntry) => {
-    const hit = treeEntryToHit(entry);
-    if (hit) setSelection({ kind: "file", hit });
-  }, []);
+  const onPickTreeFile = React.useCallback(
+    (entry: DirEntry) => {
+      const hit = treeEntryToHit(entry);
+      if (hit) guardedSetSelection({ kind: "file", hit });
+    },
+    [guardedSetSelection],
+  );
 
-  const onSelectDir = React.useCallback((path: string) => {
-    setSelection({ kind: "dir", path });
-  }, []);
+  const onSelectDir = React.useCallback(
+    (path: string) => {
+      guardedSetSelection({ kind: "dir", path });
+    },
+    [guardedSetSelection],
+  );
 
   const onFileDeleted = React.useCallback(() => {
     setSelection(null);
@@ -157,6 +198,7 @@ function Shell() {
             panels={panels}
             treeRef={treeRef}
             onFileDeleted={onFileDeleted}
+            inspectorRef={inspectorRef}
           />
         ) : (
           <Welcome />
@@ -165,6 +207,21 @@ function Shell() {
       </div>
       <CommandPalette onPickHit={onPickFlatHit} />
       <InitProjectDialog />
+      <SettingsDialog
+        open={settings.open}
+        onOpenChange={(v) => {
+          if (!v) settings.closeSettings();
+        }}
+        initialTab={settings.tab}
+      />
+      <PendingSuggestionsDialog
+        open={pendingConfirm !== null}
+        onDiscard={() => {
+          if (pendingConfirm) setSelection(pendingConfirm.next);
+          setPendingConfirm(null);
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
@@ -184,6 +241,7 @@ function MainShell(props: {
   panels: PanelVisibility;
   treeRef: React.RefObject<HTMLElement | null>;
   onFileDeleted: () => void;
+  inspectorRef: React.RefObject<FileInspectorHandle | null>;
 }) {
   const flatRef = React.useRef<HTMLElement>(null);
   const flatDrop = useDropZone(flatRef);
@@ -228,7 +286,11 @@ function MainShell(props: {
       node: (
         <ResizablePanel id="inspector" key="inspector" defaultSize={38} minSize={20}>
           <aside className="h-full overflow-hidden">
-            <InspectorPane selection={props.selection} onFileDeleted={props.onFileDeleted} />
+            <InspectorPane
+              selection={props.selection}
+              onFileDeleted={props.onFileDeleted}
+              inspectorRef={props.inspectorRef}
+            />
           </aside>
         </ResizablePanel>
       ),
@@ -254,9 +316,19 @@ function MainShell(props: {
  * on the current selection. Empty selection falls back to the
  * directory inspector at project root, matching the previous default.
  */
-function InspectorPane(props: { selection: Selection; onFileDeleted?: (() => void) | undefined }) {
+function InspectorPane(props: {
+  selection: Selection;
+  onFileDeleted?: (() => void) | undefined;
+  inspectorRef: React.RefObject<FileInspectorHandle | null>;
+}) {
   if (props.selection?.kind === "file") {
-    return <FileInspector hit={props.selection.hit} onDeleted={props.onFileDeleted} />;
+    return (
+      <FileInspector
+        ref={props.inspectorRef}
+        hit={props.selection.hit}
+        onDeleted={props.onFileDeleted}
+      />
+    );
   }
   const dir = props.selection?.kind === "dir" ? props.selection.path : "";
   return <DirectoryInspector dir={dir} />;
@@ -347,4 +419,31 @@ function relTime(rfc3339: string): string {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   return `${day}d ago`;
+}
+
+function PendingSuggestionsDialog(props: {
+  open: boolean;
+  onDiscard: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={(v) => !v && props.onCancel()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Discard AI suggestions?</DialogTitle>
+          <DialogDescription>
+            You have unapplied AI suggestions. Switching files will discard them.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={props.onCancel}>
+            Stay
+          </Button>
+          <Button variant="destructive" onClick={props.onDiscard}>
+            Discard
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
