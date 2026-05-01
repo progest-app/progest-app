@@ -85,6 +85,13 @@ export function CommandPalette(props: { onPickHit?: (hit: RichSearchHit) => void
         e.preventDefault();
         setOpen((v) => !v);
       }
+      if (e.key === "F1") {
+        e.preventDefault();
+        setOpen((prev) => {
+          if (!prev) setQuery(">");
+          return !prev;
+        });
+      }
     };
     const onToggle = () => setOpen((v) => !v);
     window.addEventListener("keydown", onKey);

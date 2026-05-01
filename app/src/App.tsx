@@ -320,8 +320,10 @@ function Shell() {
   return (
     <DragDropProvider onDrop={handleDrop}>
       <div className="grid h-screen grid-rows-[auto_1fr_auto] bg-background">
-        <TitleBar panels={panels} onTogglePanel={togglePanel} />
-        {showShadcnMenu ? <AppMenubar {...menuActions} /> : null}
+        <div>
+          <TitleBar panels={panels} onTogglePanel={togglePanel} />
+          {showShadcnMenu ? <AppMenubar {...menuActions} /> : null}
+        </div>
         {project ? (
           <MainShell
             onPickHit={onPickFlatHit}
@@ -476,7 +478,7 @@ function InspectorPane(props: {
 function Welcome() {
   const { recent, openPicker, pickRecent, openInitDialog, error } = useProject();
   return (
-    <div className="flex flex-col items-center justify-center gap-6 overflow-auto p-6">
+    <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-6">
       <div className="text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Progest</h1>
         <p className="text-xs text-muted-foreground">

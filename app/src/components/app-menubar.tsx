@@ -70,7 +70,7 @@ export function AppMenubar(props: {
           <MenubarItem onClick={props.onToggleInspector}>Toggle Inspector</MenubarItem>
           <MenubarSeparator />
           <MenubarItem onClick={props.onPalette}>
-            Command Palette… <MenubarShortcut>{mod}K</MenubarShortcut>
+            Command Palette… <MenubarShortcut>{mod}K / F1</MenubarShortcut>
           </MenubarItem>
           <MenubarSeparator />
           <MenubarItem onClick={props.onRescan}>
