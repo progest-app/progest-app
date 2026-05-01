@@ -538,11 +538,11 @@ function FileNode(props: {
               selectStem
             />
           ) : (
-            <span className="truncate">{entry.name}</span>
+            <span className="min-w-0 truncate">{entry.name}</span>
           )}
           {!isRenaming && file ? <ViolationDots counts={file.violations} /> : null}
           {!isRenaming && file && file.tags.length > 0 ? (
-            <span className="ml-auto text-[0.625rem] text-muted-foreground">
+            <span className="ml-auto min-w-0 shrink truncate text-[0.625rem] text-muted-foreground">
               {file.tags.map((t) => `#${t}`).join(" ")}
             </span>
           ) : null}

@@ -399,10 +399,10 @@ function SearchBody(props: {
     <CommandGroup heading={`${response.hits.length} hit${response.hits.length === 1 ? "" : "s"}`}>
       {response.hits.map((hit) => (
         <CommandItem key={hit.file_id} value={hit.file_id} onSelect={() => onPick(hit)}>
-          <span className="truncate font-mono">{hit.path}</span>
-          <ViolationBadges counts={hit.violations} />
+          <span className="min-w-0 flex-1 truncate font-mono">{hit.path}</span>
+          <ViolationBadges counts={hit.violations} className="shrink-0" />
           {hit.tags.length > 0 ? (
-            <CommandShortcut>
+            <CommandShortcut className="shrink-0">
               <span className="opacity-70">{hit.tags.map((t) => `#${t}`).join(" ")}</span>
             </CommandShortcut>
           ) : null}
