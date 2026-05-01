@@ -1,11 +1,19 @@
 import * as React from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { FolderOpen, FolderTree, LayoutList, Search, SlidersHorizontal } from "lucide-react";
+import {
+  FolderOpen,
+  FolderTree,
+  LayoutList,
+  Search,
+  Settings,
+  SlidersHorizontal,
+} from "lucide-react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useProject } from "@/lib/project-context";
+import { useSettings } from "@/lib/settings-context";
 import { cn } from "@/lib/utils";
 
 export type PanelKey = "tree" | "flat" | "inspector";
@@ -166,8 +174,24 @@ export function TitleBar(props: {
           search bar and the toggle is grabbable. */}
       <div data-tauri-drag-region className="flex items-center justify-end gap-1">
         <ThemeToggle />
+        <SettingsButton />
       </div>
     </div>
+  );
+}
+
+function SettingsButton() {
+  const { openSettings } = useSettings();
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      onClick={() => openSettings()}
+      title="Settings"
+      aria-label="Open settings"
+    >
+      <Settings />
+    </Button>
   );
 }
 

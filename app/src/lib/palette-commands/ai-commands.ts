@@ -1,8 +1,11 @@
 import * as React from "react";
 
+import { useSettings } from "@/lib/settings-context";
 import type { PaletteCommand } from "./types";
 
 export function useAiCommands(): PaletteCommand[] {
+  const { openSettings } = useSettings();
+
   return React.useMemo<PaletteCommand[]>(
     () => [
       {
@@ -39,12 +42,19 @@ export function useAiCommands(): PaletteCommand[] {
       },
       {
         id: "ai.configure",
-        title: "AI: Configure API key",
+        title: "AI: Configure API key & settings",
         group: "AI",
-        keywords: ["ai", "key", "config", "setup", "byok", "openai", "anthropic"],
-        run: () => {},
+        keywords: ["ai", "key", "config", "setup", "byok", "openai", "anthropic", "settings"],
+        run: () => openSettings("ai"),
+      },
+      {
+        id: "settings",
+        title: "Settings",
+        group: "App",
+        keywords: ["settings", "preferences", "config", "options"],
+        run: () => openSettings(),
       },
     ],
-    [],
+    [openSettings],
   );
 }

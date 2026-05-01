@@ -2,12 +2,12 @@ import * as React from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { RefreshCw, Settings } from "lucide-react";
+
 import {
   IpcError,
-  aiDeleteKey,
+  aiApplyRename,
   aiGetConfig,
-  aiSetConfig,
-  aiSetKey,
   aiSuggest,
   fileDeleteApply,
   fileDeletePreview,
@@ -21,6 +21,7 @@ import {
   type RichSearchHit,
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
+import { useSettings } from "@/lib/settings-context";
 import { DotmSquare1 } from "@/components/ui/dotm-square-1";
 import { DotmSquare12 } from "@/components/ui/dotm-square-12";
 import { Button } from "@/components/ui/button";
@@ -53,9 +54,21 @@ const NOTES_DEBOUNCE_MS = 600;
  * read-only fields but disable the editors — there's nothing in the
  * index to attach the mutation to.
  */
-export function FileInspector(props: { hit: RichSearchHit; onDeleted?: (() => void) | undefined }) {
+export type FileInspectorHandle = {
+  hasPendingSuggestions: () => boolean;
+};
+
+export const FileInspector = React.forwardRef<
+  FileInspectorHandle,
+  { hit: RichSearchHit; onDeleted?: (() => void) | undefined }
+>(function FileInspector(props, ref) {
   const { hit, onDeleted } = props;
   const isIndexed = hit.file_id.length > 0;
+  const pendingRef = React.useRef(false);
+
+  React.useImperativeHandle(ref, () => ({
+    hasPendingSuggestions: () => pendingRef.current,
+  }));
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr] overflow-hidden">
@@ -68,7 +81,7 @@ export function FileInspector(props: { hit: RichSearchHit; onDeleted?: (() => vo
         <TagsEditor hit={hit} disabled={!isIndexed} />
         <NotesEditor hit={hit} disabled={!isIndexed} />
         <CustomFieldsBlock hit={hit} />
-        {isIndexed ? <AiSuggestionsSection hit={hit} /> : null}
+        {isIndexed ? <AiSuggestionsSection hit={hit} pendingRef={pendingRef} /> : null}
         {!isIndexed ? (
           <div className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-warning">
             This file isn&apos;t indexed yet — run <code>progest scan</code> (or wait for the next
@@ -79,7 +92,7 @@ export function FileInspector(props: { hit: RichSearchHit; onDeleted?: (() => vo
       </div>
     </div>
   );
-}
+});
 
 function DeleteSection(props: { path: string; onDeleted?: (() => void) | undefined }) {
   const { bumpRefresh } = useProject();
@@ -432,30 +445,30 @@ function CustomFieldsBlock(props: { hit: RichSearchHit }) {
 
 const AI_TYPES = ["naming", "tags", "notes", "placement"] as const;
 type AiType = (typeof AI_TYPES)[number];
-const AI_PROVIDERS = ["anthropic", "openai"] as const;
 
-function AiSuggestionsSection(props: { hit: RichSearchHit }) {
-  const { hit } = props;
+function AiSuggestionsSection(props: {
+  hit: RichSearchHit;
+  pendingRef: React.MutableRefObject<boolean>;
+}) {
+  const { hit, pendingRef } = props;
   const { bumpRefresh } = useProject();
+  const { openSettings } = useSettings();
   const [config, setConfig] = React.useState<AiConfigResponse | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [suggestions, setSuggestions] = React.useState<AiSuggestionWire[]>([]);
   const [activeType, setActiveType] = React.useState<AiType>("naming");
   const [includeNotes, setIncludeNotes] = React.useState(false);
-  const [keyInput, setKeyInput] = React.useState("");
-  const [keyProvider, setKeyProvider] = React.useState<string>("anthropic");
-  const [showKeyForm, setShowKeyForm] = React.useState(false);
-  const [savingKey, setSavingKey] = React.useState(false);
+
+  React.useEffect(() => {
+    pendingRef.current = suggestions.length > 0;
+  }, [suggestions, pendingRef]);
 
   React.useEffect(() => {
     let cancelled = false;
     aiGetConfig()
       .then((c) => {
-        if (!cancelled) {
-          setConfig(c);
-          setKeyProvider(c.provider);
-        }
+        if (!cancelled) setConfig(c);
       })
       .catch(() => {});
     return () => {
@@ -483,11 +496,25 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
     }
   };
 
+  const handleRegenerate = () => void handleSuggest(activeType);
+
   const handleApplyTag = async (tag: string) => {
     try {
       await tagAdd(hit.file_id, tag);
+      setSuggestions((prev) => prev.filter((s) => s.value !== tag));
       bumpRefresh();
       toast.success(`Tag "${tag}" added`);
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    }
+  };
+
+  const handleApplyRename = async (newName: string) => {
+    try {
+      const result = await aiApplyRename(hit.path, newName);
+      setSuggestions([]);
+      bumpRefresh();
+      toast.success(`Renamed to ${result.new_path.split("/").pop()}`);
     } catch (e) {
       toast.error(e instanceof IpcError ? e.raw : String(e));
     }
@@ -496,42 +523,11 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
   const handleApplyNotes = async (notes: string) => {
     try {
       await notesWrite(hit.path, notes);
+      setSuggestions([]);
       bumpRefresh();
       toast.success("Notes updated");
     } catch (e) {
       toast.error(e instanceof IpcError ? e.raw : String(e));
-    }
-  };
-
-  const handleDeleteKey = async () => {
-    if (!config) return;
-    try {
-      await aiDeleteKey(config.provider);
-      const newConfig = await aiGetConfig();
-      setConfig(newConfig);
-      setShowKeyForm(false);
-      setSuggestions([]);
-      toast.success("API key removed");
-    } catch (e) {
-      toast.error(e instanceof IpcError ? e.raw : String(e));
-    }
-  };
-
-  const handleSaveKey = async () => {
-    if (!keyInput.trim()) return;
-    setSavingKey(true);
-    try {
-      await aiSetKey(keyProvider, keyInput.trim());
-      await aiSetConfig({ provider: keyProvider });
-      setKeyInput("");
-      setShowKeyForm(false);
-      const newConfig = await aiGetConfig();
-      setConfig(newConfig);
-      toast.success(`API key saved for ${keyProvider}`);
-    } catch (e) {
-      toast.error(e instanceof IpcError ? e.raw : String(e));
-    } finally {
-      setSavingKey(false);
     }
   };
 
@@ -541,54 +537,10 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
     return (
       <section className="grid gap-1.5">
         <Label className="text-muted-foreground">AI suggestions</Label>
-        {showKeyForm ? (
-          <div className="grid gap-2">
-            <div className="flex gap-1.5">
-              {AI_PROVIDERS.map((p) => (
-                <Button
-                  key={p}
-                  size="xs"
-                  variant={keyProvider === p ? "default" : "outline"}
-                  onClick={() => setKeyProvider(p)}
-                  disabled={savingKey}
-                >
-                  {p}
-                </Button>
-              ))}
-            </div>
-            <Input
-              type="password"
-              placeholder={`${keyProvider} API key`}
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              disabled={savingKey}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSaveKey();
-              }}
-            />
-            <div className="flex gap-1">
-              <Button
-                size="xs"
-                onClick={() => void handleSaveKey()}
-                disabled={savingKey || !keyInput.trim()}
-              >
-                {savingKey ? "Saving…" : "Save"}
-              </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => setShowKeyForm(false)}
-                disabled={savingKey}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button size="xs" variant="outline" onClick={() => setShowKeyForm(true)}>
-            Configure API key
-          </Button>
-        )}
+        <Button size="xs" variant="outline" onClick={() => openSettings("ai")}>
+          <Settings className="mr-1 size-3" />
+          Configure AI
+        </Button>
       </section>
     );
   }
@@ -597,70 +549,14 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
     <section className="grid gap-1.5">
       <div className="flex items-center justify-between">
         <Label className="text-muted-foreground">AI suggestions</Label>
-        <span className="text-[0.625rem] text-muted-foreground">
+        <button
+          type="button"
+          className="text-[0.625rem] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          onClick={() => openSettings("ai")}
+        >
           {config.provider}/{config.model.split("-").slice(0, 2).join("-")}
-          {" · "}
-          <button
-            type="button"
-            className="underline underline-offset-2 hover:text-foreground"
-            onClick={() => setShowKeyForm(true)}
-          >
-            change
-          </button>
-          {" · "}
-          <button
-            type="button"
-            className="underline underline-offset-2 hover:text-destructive"
-            onClick={() => void handleDeleteKey()}
-          >
-            remove
-          </button>
-        </span>
+        </button>
       </div>
-      {showKeyForm ? (
-        <div className="grid gap-2 rounded-md border bg-muted/30 p-2">
-          <div className="flex gap-1.5">
-            {AI_PROVIDERS.map((p) => (
-              <Button
-                key={p}
-                size="xs"
-                variant={keyProvider === p ? "default" : "outline"}
-                onClick={() => setKeyProvider(p)}
-                disabled={savingKey}
-              >
-                {p}
-              </Button>
-            ))}
-          </div>
-          <Input
-            type="password"
-            placeholder={`${keyProvider} API key`}
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            disabled={savingKey}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleSaveKey();
-            }}
-          />
-          <div className="flex gap-1">
-            <Button
-              size="xs"
-              onClick={() => void handleSaveKey()}
-              disabled={savingKey || !keyInput.trim()}
-            >
-              {savingKey ? "Saving…" : "Save"}
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => setShowKeyForm(false)}
-              disabled={savingKey}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
       <div className="flex flex-wrap gap-1">
         {AI_TYPES.map((t) => (
           <Button
@@ -693,28 +589,52 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
       ) : null}
       {error ? <div className="text-destructive">{error}</div> : null}
       {suggestions.length > 0 ? (
-        <ul className="grid gap-1">
-          {suggestions.map((s, i) => (
-            <li key={i} className="rounded-md border bg-muted/30 px-2 py-1.5">
-              <div className="flex items-start justify-between gap-2">
-                <span className="break-words font-mono">{s.value}</span>
-                {activeType === "tags" ? (
-                  <Button size="xs" variant="ghost" onClick={() => void handleApplyTag(s.value)}>
-                    Apply
-                  </Button>
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-[0.625rem] text-muted-foreground">
+              {suggestions.length} suggestion{suggestions.length > 1 ? "s" : ""}
+            </span>
+            <Button size="xs" variant="ghost" onClick={handleRegenerate} disabled={busy}>
+              <RefreshCw className="mr-1 size-3" />
+              Regenerate
+            </Button>
+          </div>
+          <ul className="grid gap-1">
+            {suggestions.map((s, i) => (
+              <li key={i} className="rounded-md border bg-muted/30 px-2 py-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="break-words font-mono">{s.value}</span>
+                  {activeType === "naming" ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => void handleApplyRename(s.value)}
+                    >
+                      Rename
+                    </Button>
+                  ) : null}
+                  {activeType === "tags" ? (
+                    <Button size="xs" variant="ghost" onClick={() => void handleApplyTag(s.value)}>
+                      Apply
+                    </Button>
+                  ) : null}
+                  {activeType === "notes" ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => void handleApplyNotes(s.value)}
+                    >
+                      Apply
+                    </Button>
+                  ) : null}
+                </div>
+                {s.explanation ? (
+                  <div className="mt-0.5 text-muted-foreground">{s.explanation}</div>
                 ) : null}
-                {activeType === "notes" ? (
-                  <Button size="xs" variant="ghost" onClick={() => void handleApplyNotes(s.value)}>
-                    Apply
-                  </Button>
-                ) : null}
-              </div>
-              {s.explanation ? (
-                <div className="mt-0.5 text-muted-foreground">{s.explanation}</div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
     </section>
   );
