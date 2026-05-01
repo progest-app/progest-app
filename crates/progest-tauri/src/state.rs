@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use progest_core::fs::StdFileSystem;
+use progest_core::history::SqliteStore as HistoryStore;
 use progest_core::index::SqliteIndex;
 use progest_core::project::ProjectRoot;
 use serde::Serialize;
@@ -29,6 +30,7 @@ pub struct ProjectContext {
     pub root: ProjectRoot,
     pub fs: StdFileSystem,
     pub index: SqliteIndex,
+    pub history: HistoryStore,
 }
 
 impl ProjectContext {
@@ -38,7 +40,14 @@ impl ProjectContext {
         let fs = StdFileSystem::new(root.root().to_path_buf());
         let index = SqliteIndex::open(&root.index_db())
             .map_err(|e| format!("opening index `{}`: {e}", root.index_db().display()))?;
-        Ok(Self { root, fs, index })
+        let history = HistoryStore::open(&root.history_db())
+            .map_err(|e| format!("opening history `{}`: {e}", root.history_db().display()))?;
+        Ok(Self {
+            root,
+            fs,
+            index,
+            history,
+        })
     }
 }
 

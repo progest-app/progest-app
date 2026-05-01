@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use progest_core::fs::ProjectPath;
+use progest_core::history::{AppendRequest, Operation, Store as _};
 use progest_core::index::Index;
 use progest_core::tag;
 use serde::Serialize;
 
-use crate::context::{discover_root, open_index};
+use crate::context::{discover_root, open_history, open_index};
 use crate::output::{OutputFormat, emit_json};
 
 pub enum TagCommand {
@@ -44,10 +45,27 @@ struct MutateEntry {
 pub fn run(cwd: &Path, args: &TagArgs) -> Result<i32> {
     let root = discover_root(cwd)?;
     let index = open_index(&root).context("opening index")?;
+    let history = open_history(&root).ok();
 
     match &args.command {
-        TagCommand::Add { tag, files } => mutate(&root, &index, tag, files, args.format, true),
-        TagCommand::Remove { tag, files } => mutate(&root, &index, tag, files, args.format, false),
+        TagCommand::Add { tag, files } => mutate(
+            &root,
+            &index,
+            history.as_ref(),
+            tag,
+            files,
+            args.format,
+            true,
+        ),
+        TagCommand::Remove { tag, files } => mutate(
+            &root,
+            &index,
+            history.as_ref(),
+            tag,
+            files,
+            args.format,
+            false,
+        ),
         TagCommand::List { files } => list(&root, &index, files, args.format),
     }
 }
@@ -55,6 +73,7 @@ pub fn run(cwd: &Path, args: &TagArgs) -> Result<i32> {
 fn mutate(
     root: &progest_core::project::ProjectRoot,
     index: &dyn Index,
+    history: Option<&progest_core::history::SqliteStore>,
     tag_name: &str,
     files: &[PathBuf],
     format: OutputFormat,
@@ -102,11 +121,27 @@ fn mutate(
             tag::remove(index, &row.file_id, tag_name)
         };
         match result {
-            Ok(()) => entries.push(MutateEntry {
-                path: path.as_str().into(),
-                ok: true,
-                message: None,
-            }),
+            Ok(()) => {
+                if let Some(h) = history {
+                    let op = if add {
+                        Operation::TagAdd {
+                            path: path.clone(),
+                            tag: tag_name.to_string(),
+                        }
+                    } else {
+                        Operation::TagRemove {
+                            path: path.clone(),
+                            tag: tag_name.to_string(),
+                        }
+                    };
+                    let _ = h.append(&AppendRequest::new(op));
+                }
+                entries.push(MutateEntry {
+                    path: path.as_str().into(),
+                    ok: true,
+                    message: None,
+                });
+            }
             Err(e) => {
                 had_error = true;
                 entries.push(MutateEntry {

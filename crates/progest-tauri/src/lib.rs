@@ -10,6 +10,7 @@ mod commands;
 mod crud_commands;
 mod delete_commands;
 mod file_inspector_commands;
+mod history_commands;
 mod import_commands;
 mod lint_commands;
 mod menu;
@@ -100,6 +101,9 @@ pub fn run() {
             delete_commands::file_delete_preview,
             delete_commands::file_delete_apply,
             delete_commands::dir_delete_apply,
+            history_commands::history_list,
+            history_commands::history_undo,
+            history_commands::history_redo,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,

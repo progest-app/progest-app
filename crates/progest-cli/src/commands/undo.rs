@@ -14,13 +14,16 @@
 //! rename, sequence). `--entry` limits the action to the single head
 //! entry so pipelines that want per-op granularity can ask for it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
+use progest_core::delete::apply_delete;
 use progest_core::fs::StdFileSystem;
 use progest_core::history::{Entry, Operation, SqliteStore as HistoryStore, Store as _};
-use progest_core::index::SqliteIndex;
+use progest_core::index::{Index, SqliteIndex};
+use progest_core::meta::{MetaStore, StdMetaStore, sidecar_path};
 use progest_core::rename::{Rename, RenameOp, RenamePreview};
+use progest_core::tag;
 use serde::Serialize;
 
 use crate::context::{discover_root, open_history, open_index};
@@ -68,6 +71,7 @@ pub fn run(cwd: &Path, args: &UndoRedoArgs) -> Result<i32> {
 
     let fs = StdFileSystem::new(root.root().to_path_buf());
     let index = open_index(&root)?;
+    let meta: StdMetaStore<StdFileSystem> = StdMetaStore::new(fs.clone());
 
     let mut replayed: Vec<ReportRow> = Vec::new();
     for entry in &plan {
@@ -75,7 +79,8 @@ pub fn run(cwd: &Path, args: &UndoRedoArgs) -> Result<i32> {
             Direction::Undo => &entry.inverse,
             Direction::Redo => &entry.op,
         };
-        dispatch_op(op, &fs, &index).with_context(|| format!("replaying entry {}", entry.id))?;
+        dispatch_op(op, &fs, &index, &meta, root.root())
+            .with_context(|| format!("replaying entry {}", entry.id))?;
         // FS succeeded — flip the stack entry. If this fails the user
         // sees the error directly; history + disk are now mismatched
         // but `progest doctor` will reconcile on a later pass.
@@ -166,7 +171,13 @@ fn collect_plan(history: &HistoryStore, head: &Entry, args: &UndoRedoArgs) -> Re
 
 // --- dispatch --------------------------------------------------------------
 
-fn dispatch_op(op: &Operation, fs: &StdFileSystem, index: &SqliteIndex) -> Result<()> {
+fn dispatch_op(
+    op: &Operation,
+    fs: &StdFileSystem,
+    index: &SqliteIndex,
+    meta: &StdMetaStore<StdFileSystem>,
+    project_root: &Path,
+) -> Result<()> {
     match op {
         Operation::Rename { from, to, rule_id } => {
             let rename_op = RenameOp {
@@ -183,17 +194,43 @@ fn dispatch_op(op: &Operation, fs: &StdFileSystem, index: &SqliteIndex) -> Resul
             driver.apply(&preview).context("applying rename replay")?;
             Ok(())
         }
-        // tag / meta_edit / import replay requires wiring
-        // core::meta + core::index hooks that aren't surfaced for CLI
-        // yet. Flagged explicitly so users on an older build get a
-        // clear error instead of a silent no-op if someone imports a
-        // history.db from a newer version.
-        Operation::TagAdd { .. }
-        | Operation::TagRemove { .. }
-        | Operation::MetaEdit { .. }
-        | Operation::Import { .. } => Err(anyhow!(
-            "undo/redo for `{}` ops is not yet wired (M2 covers `rename` only)",
-            op.kind().as_str()
+        Operation::TagAdd { path, tag } => {
+            let row = index
+                .get_file_by_path(path)
+                .context("index lookup for tag replay")?
+                .ok_or_else(|| anyhow!("file `{}` not in index", path.as_str()))?;
+            tag::add(index, &row.file_id, tag).map_err(|e| anyhow!("tag add replay: {e}"))?;
+            Ok(())
+        }
+        Operation::TagRemove { path, tag } => {
+            let row = index
+                .get_file_by_path(path)
+                .context("index lookup for tag replay")?
+                .ok_or_else(|| anyhow!("file `{}` not in index", path.as_str()))?;
+            tag::remove(index, &row.file_id, tag).map_err(|e| anyhow!("tag remove replay: {e}"))?;
+            Ok(())
+        }
+        Operation::MetaEdit { path, after, .. } => {
+            let sidecar = sidecar_path(path)
+                .map_err(|e| anyhow!("sidecar path for `{}`: {e}", path.as_str()))?;
+            meta.save(&sidecar, after)
+                .map_err(|e| anyhow!("meta restore for `{}`: {e}", path.as_str()))?;
+            Ok(())
+        }
+        Operation::Import {
+            path,
+            is_inverse: true,
+        } => {
+            apply_delete(index, project_root, path)
+                .map_err(|e| anyhow!("import undo (trash) for `{}`: {e}", path.as_str()))?;
+            Ok(())
+        }
+        Operation::Import {
+            path,
+            is_inverse: false,
+        } => Err(anyhow!(
+            "redo of import for `{}` requires re-importing the original file, which is not automated",
+            path.as_str()
         )),
     }
 }
@@ -264,10 +301,4 @@ fn summarize(op: &Operation) -> String {
             }
         }
     }
-}
-
-// Silence unused parameter name on release builds.
-#[allow(dead_code)]
-fn _unused() -> PathBuf {
-    PathBuf::new()
 }
