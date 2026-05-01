@@ -28,15 +28,7 @@ export function StatusBar() {
 
   return (
     <footer className="flex h-6 items-center gap-3 overflow-hidden border-t bg-card px-3 text-[0.625rem] text-muted-foreground">
-      {activeTask ? (
-        <span className="flex shrink-0 items-center gap-1.5 text-foreground">
-          <DotmSquare20 size={12} dotSize={1.5} animated />
-          <span className="truncate">
-            {activeTask.label}
-            {activeTask.total > 0 && ` ${activeTask.current}/${activeTask.total}`}
-          </span>
-        </span>
-      ) : hasViolations ? (
+      {hasViolations ? (
         <span className="flex shrink-0 items-center">
           <ViolationBadges
             counts={totals}
@@ -65,15 +57,26 @@ export function StatusBar() {
         </span>
       )}
 
-      {summary.activeView ? (
-        <span
-          className="ml-auto flex min-w-0 shrink-0 items-center gap-1 truncate"
-          title={summary.activeView.query}
-        >
-          <Eye className="size-3 shrink-0" />
-          <span className="truncate">view: {summary.activeView.name}</span>
-        </span>
-      ) : null}
+      <span className="ml-auto flex shrink-0 items-center gap-3">
+        {activeTask && (
+          <span className="flex items-center gap-1.5 text-foreground">
+            <DotmSquare20 size={12} dotSize={1.5} animated />
+            <span className="truncate">
+              {activeTask.label}
+              {activeTask.total > 0 && ` ${activeTask.current}/${activeTask.total}`}
+            </span>
+          </span>
+        )}
+        {summary.activeView && (
+          <span
+            className="flex min-w-0 items-center gap-1 truncate"
+            title={summary.activeView.query}
+          >
+            <Eye className="size-3 shrink-0" />
+            <span className="truncate">view: {summary.activeView.name}</span>
+          </span>
+        )}
+      </span>
     </footer>
   );
 }
