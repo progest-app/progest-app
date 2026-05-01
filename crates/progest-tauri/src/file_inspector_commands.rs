@@ -61,6 +61,18 @@ pub fn tag_remove(file_id: String, tag: String, state: State<'_, AppState>) -> R
     Ok(())
 }
 
+/// Return every distinct tag in the project, sorted alphabetically.
+/// Used by the inspector's tag autocomplete to suggest existing tags.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+pub fn tag_list_all(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let guard = state.project.lock().expect("project mutex poisoned");
+    let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+    ctx.index
+        .list_all_tags()
+        .map_err(|e| format!("list tags: {e}"))
+}
+
 /// Read the `[notes].body` for the file at `path` (project-relative).
 /// Returns an empty body for files that don't have a sidecar yet —
 /// the inspector's textarea starts blank in that case rather than

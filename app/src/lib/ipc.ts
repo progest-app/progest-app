@@ -392,6 +392,14 @@ export async function tagRemove(file_id: string, tag: string): Promise<void> {
   }
 }
 
+export async function tagListAll(): Promise<string[]> {
+  try {
+    return await invoke<string[]>("tag_list_all");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 export async function notesRead(path: string): Promise<NotesReadResponse> {
   try {
     return await invoke<NotesReadResponse>("notes_read", { path });

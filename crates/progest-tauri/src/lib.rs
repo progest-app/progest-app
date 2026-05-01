@@ -78,6 +78,7 @@ pub fn run() {
             project_init_commands::project_init_existing,
             file_inspector_commands::tag_add,
             file_inspector_commands::tag_remove,
+            file_inspector_commands::tag_list_all,
             file_inspector_commands::notes_read,
             file_inspector_commands::notes_write,
             template_commands::template_export,
