@@ -53,7 +53,7 @@ import {
   type HitsColumnId,
 } from "@/components/hits-data-table";
 
-const DEBOUNCE_MS = 200;
+const DEBOUNCE_MS = 400;
 const COLUMN_VISIBILITY_KEY = "progest:flatview-columns";
 const COLUMN_SIZING_KEY = "progest:flatview-column-sizing";
 const SORTING_KEY = "progest:flatview-sorting";
@@ -239,10 +239,10 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
         cancelled = true;
       };
     }
-    setLoading(true);
     const handle = setTimeout(async () => {
+      if (cancelled) return;
+      setLoading(true);
       try {
-        if (cancelled) return;
         setResponse(await searchExecute(trimmed));
         setError(null);
       } catch (e) {

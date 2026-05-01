@@ -34,7 +34,7 @@ import { ViolationBadges } from "@/components/violation-badges";
 /** Prefix that flips the palette into "system commands" mode. */
 const COMMAND_PREFIX = ">";
 
-const SEARCH_DEBOUNCE_MS = 200;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function CommandPalette(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const { project, recent, openPicker, pickRecent, clearRecent, submitFlatViewQuery } =
