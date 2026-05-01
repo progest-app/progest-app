@@ -22,26 +22,19 @@ pub fn find_ffmpeg() -> Option<PathBuf> {
         }
     }
 
-    if let Some(adjacent) = std::env::current_exe()
+    if let Some(exe_dir) = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("ffmpeg")))
-        && adjacent.is_file()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
     {
-        return Some(adjacent);
-    }
-
-    which_ffmpeg()
-}
-
-fn which_ffmpeg() -> Option<PathBuf> {
-    let output = Command::new("which").arg("ffmpeg").output().ok()?;
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !path.is_empty() {
-            return Some(PathBuf::from(path));
+        for name in &["ffmpeg", "ffmpeg.exe"] {
+            let adjacent = exe_dir.join(name);
+            if adjacent.is_file() {
+                return Some(adjacent);
+            }
         }
     }
-    None
+
+    which::which("ffmpeg").ok()
 }
 
 pub fn extract_frame(
