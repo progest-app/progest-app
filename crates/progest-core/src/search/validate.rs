@@ -103,6 +103,7 @@ pub enum ReservedClause {
     Is(IsValue),
     Name(String),
     Path(String),
+    Under(String),
     Created(InstantRange),
     Updated(InstantRange),
 }
@@ -346,7 +347,7 @@ impl Ctx {
         let key = clause.key.as_str();
         let is_reserved = matches!(
             key,
-            "tag" | "type" | "kind" | "is" | "name" | "path" | "created" | "updated"
+            "tag" | "type" | "kind" | "is" | "name" | "path" | "under" | "created" | "updated"
         );
         let is_custom = !is_reserved && schema.get(key).is_some();
         if !is_reserved && !is_custom {
@@ -505,6 +506,24 @@ impl Ctx {
                     return Some(ValidAtom::AlwaysFalse(format!("invalid_glob:path={raw}")));
                 }
             },
+            "under" => {
+                let pattern = if raw.ends_with("/**") {
+                    raw.to_string()
+                } else {
+                    let trimmed = raw.trim_end_matches('/');
+                    format!("{trimmed}/**")
+                };
+                match validate_glob(&pattern) {
+                    Ok(_) => ReservedClause::Under(pattern),
+                    Err(_) => {
+                        self.warn(Warning::InvalidGlob {
+                            key: "under".into(),
+                            value: raw.into(),
+                        });
+                        return Some(ValidAtom::AlwaysFalse(format!("invalid_glob:under={raw}")));
+                    }
+                }
+            }
             "created" | "updated" => {
                 let count = self.instant_keys_seen.entry(key.to_string()).or_insert(0);
                 *count += 1;
