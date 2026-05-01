@@ -1068,4 +1068,68 @@ mod tests {
         let after = run(&conn, "forest", &CustomFields::new());
         assert!(after.is_empty());
     }
+
+    #[test]
+    fn freetext_short_query_matches_via_like() {
+        let conn = open();
+        insert_file(
+            &conn,
+            "f1",
+            "./ch_bg_v10.psd",
+            "ch_bg_v10.psd",
+            Some("psd"),
+            None,
+            None,
+            None,
+            false,
+            "fp1",
+        );
+        insert_file(
+            &conn,
+            "f2",
+            "./forest_night.psd",
+            "forest_night.psd",
+            Some("psd"),
+            None,
+            None,
+            None,
+            false,
+            "fp2",
+        );
+
+        let hits = run(&conn, "bg", &CustomFields::new());
+        assert_eq!(paths(&hits), vec!["./ch_bg_v10.psd"]);
+    }
+
+    #[test]
+    fn freetext_short_query_matches_notes() {
+        let conn = open();
+        insert_file(
+            &conn,
+            "f1",
+            "./a.psd",
+            "a.psd",
+            Some("psd"),
+            Some("BG reference shot"),
+            None,
+            None,
+            false,
+            "fp1",
+        );
+        insert_file(
+            &conn,
+            "f2",
+            "./b.psd",
+            "b.psd",
+            Some("psd"),
+            None,
+            None,
+            None,
+            false,
+            "fp2",
+        );
+
+        let hits = run(&conn, "BG", &CustomFields::new());
+        assert_eq!(paths(&hits), vec!["./a.psd"]);
+    }
 }

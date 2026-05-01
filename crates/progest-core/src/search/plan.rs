@@ -182,6 +182,19 @@ impl SqlBuilder {
     }
 
     fn build_freetext(&mut self, term: &FreeTextTerm) -> String {
+        let raw = match term {
+            FreeTextTerm::Bareword(s) | FreeTextTerm::Phrase(s) => s.as_str(),
+        };
+
+        // FTS5 trigram needs >= 3 characters to produce any trigrams.
+        // For shorter queries, fall back to LIKE on the same columns.
+        if raw.chars().count() < 3 {
+            let pattern = like_escape_wrap(raw);
+            self.push_text(pattern.clone());
+            self.push_text(pattern);
+            return "(f.name LIKE ? ESCAPE '\\' OR f.notes LIKE ? ESCAPE '\\')".into();
+        }
+
         let q = match term {
             FreeTextTerm::Bareword(s) => fts_escape_bareword(s),
             FreeTextTerm::Phrase(s) => fts_escape_phrase(s),
@@ -240,6 +253,20 @@ fn fts_escape_bareword(s: &str) -> String {
 
 fn fts_escape_phrase(s: &str) -> String {
     fts_escape_bareword(s)
+}
+
+/// Wrap a short query in `%…%` for LIKE, escaping LIKE meta-chars.
+fn like_escape_wrap(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    out.push('%');
+    for ch in s.chars() {
+        if ch == '%' || ch == '_' || ch == '\\' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('%');
+    out
 }
 
 // ---------------------------------------------------------------- tests
@@ -407,6 +434,34 @@ mod tests {
         assert!(p.sql.contains("files_fts"));
         assert!(p.sql.contains("MATCH ?"));
         assert_eq!(texts(&p), vec![r#""forest""#]);
+    }
+
+    #[test]
+    fn freetext_short_query_falls_back_to_like() {
+        let p = planned("bg");
+        assert!(
+            !p.sql.contains("files_fts"),
+            "short query should not use FTS5"
+        );
+        assert!(p.sql.contains("f.name LIKE ?"), "{}", p.sql);
+        assert!(p.sql.contains("f.notes LIKE ?"), "{}", p.sql);
+        assert_eq!(texts(&p), vec!["%bg%", "%bg%"]);
+    }
+
+    #[test]
+    fn freetext_single_char_falls_back_to_like() {
+        let p = planned("a");
+        assert!(!p.sql.contains("files_fts"));
+        assert!(p.sql.contains("f.name LIKE ?"));
+        assert_eq!(texts(&p), vec!["%a%", "%a%"]);
+    }
+
+    #[test]
+    fn freetext_three_chars_uses_fts5() {
+        let p = planned("bgv");
+        assert!(p.sql.contains("files_fts"));
+        assert!(p.sql.contains("MATCH ?"));
+        assert_eq!(texts(&p), vec![r#""bgv""#]);
     }
 
     #[test]
