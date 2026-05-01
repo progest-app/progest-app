@@ -697,6 +697,26 @@ export async function historyRedo(): Promise<HistoryEntryWire[]> {
   }
 }
 
+export type HistoryConfigResponse = {
+  retention: number;
+};
+
+export async function historyGetConfig(): Promise<HistoryConfigResponse> {
+  try {
+    return await invoke<HistoryConfigResponse>("history_get_config");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function historySetConfig(config: { retention: number }): Promise<void> {
+  try {
+    await invoke<void>("history_set_config", { config });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- AI suggestions -------------------------------------------------------
 
 export type AiSuggestionWire = {

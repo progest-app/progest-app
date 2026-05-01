@@ -104,6 +104,8 @@ pub fn run() {
             history_commands::history_list,
             history_commands::history_undo,
             history_commands::history_redo,
+            history_commands::history_get_config,
+            history_commands::history_set_config,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,

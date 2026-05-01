@@ -4,8 +4,9 @@ use progest_core::delete::apply_delete;
 use progest_core::history::{Entry, Operation, Store as _};
 use progest_core::index::Index;
 use progest_core::meta::{MetaStore, StdMetaStore, sidecar_path};
+use progest_core::project::ProjectDocument;
 use progest_core::tag;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::commands::no_project_error;
@@ -227,6 +228,54 @@ fn dispatch_op(
             path.as_str()
         )),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryConfigWire {
+    pub retention: usize,
+}
+
+#[tauri::command]
+pub async fn history_get_config(app: AppHandle) -> Result<HistoryConfigWire, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+        Ok(HistoryConfigWire {
+            retention: ctx.history.retention(),
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetRetentionRequest {
+    pub retention: usize,
+}
+
+#[tauri::command]
+pub async fn history_set_config(config: SetRetentionRequest, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+        let retention = config.retention.clamp(1, 1000);
+        ctx.history.set_retention(retention);
+        let toml_path = ctx.root.project_toml();
+        let text = std::fs::read_to_string(&toml_path)
+            .map_err(|e| format!("reading project.toml: {e}"))?;
+        let mut doc = ProjectDocument::from_toml_str(&text)
+            .map_err(|e| format!("parsing project.toml: {e}"))?;
+        doc.history.retention = retention;
+        let rendered = doc
+            .to_toml_string()
+            .map_err(|e| format!("serializing project.toml: {e}"))?;
+        std::fs::write(&toml_path, rendered).map_err(|e| format!("writing project.toml: {e}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }
 
 fn summarize(op: &Operation) -> String {

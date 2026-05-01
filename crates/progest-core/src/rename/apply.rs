@@ -819,6 +819,10 @@ mod tests {
         fn redo(&self) -> Result<Entry, HistoryError> {
             Err(HistoryError::RedoEmpty)
         }
+        fn set_retention(&self, _: usize) {}
+        fn retention(&self) -> usize {
+            50
+        }
     }
 
     #[test]
