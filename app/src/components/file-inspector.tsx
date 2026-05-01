@@ -19,8 +19,7 @@ import {
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
 import { useSettings } from "@/lib/settings-context";
-import { DotmSquare1 } from "@/components/ui/dotm-square-1";
-import { DotmSquare12 } from "@/components/ui/dotm-square-12";
+import { DotmSquare5 } from "@/components/ui/dotm-square-5";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -128,7 +127,7 @@ function AiSuggestionsList(props: {
       ) : null}
       {ai.busy ? (
         <div className="flex items-center gap-1.5 text-muted-foreground">
-          <DotmSquare12 size={16} dotSize={2} animated />
+          <DotmSquare5 size={16} dotSize={2} animated />
           Generating…
         </div>
       ) : null}
@@ -697,7 +696,7 @@ function DeleteSection(props: { path: string; onDeleted?: (() => void) | undefin
             <Button variant="destructive" onClick={() => void handleDelete()} disabled={busy}>
               {busy ? (
                 <>
-                  <DotmSquare1 size={16} dotSize={2} animated className="mr-1.5" />
+                  <DotmSquare5 size={16} dotSize={2} animated className="mr-1.5" />
                   Deleting…
                 </>
               ) : (

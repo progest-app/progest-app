@@ -4,48 +4,40 @@ import type { CSSProperties } from "react";
 
 import { DotMatrixBase } from "@/lib/dotmatrix-core";
 import { useDotMatrixPhases } from "@/lib/dotmatrix-hooks";
+import { diagonalSnakeNormFromIndex, diagonalSnakeOrderValue } from "@/lib/dotmatrix-core";
 import { usePrefersReducedMotion } from "@/lib/dotmatrix-hooks";
 import type { DotAnimationResolver, DotMatrixCommonProps } from "@/lib/dotmatrix-core";
 
-export type DotmSquare12Props = DotMatrixCommonProps;
+export type DotmSquare5Props = DotMatrixCommonProps;
 
-// User-defined origin is cell (2,2) in a 1-based 5x5 grid => (row=1,col=1) in zero-based coords.
-const ORIGIN_ROW = 1;
-const ORIGIN_COL = 1;
-const MAX_MANHATTAN = 6;
-
-const animationResolver: DotAnimationResolver = ({ isActive, row, col, reducedMotion, phase }) => {
+const animationResolver: DotAnimationResolver = ({ isActive, index, reducedMotion, phase }) => {
   if (!isActive) {
     return { className: "dmx-inactive" };
   }
 
-  const ring = Math.max(
-    0,
-    Math.min(MAX_MANHATTAN, Math.abs(row - ORIGIN_ROW) + Math.abs(col - ORIGIN_COL))
-  );
-  const style = {
-    "--dmx-center-ripple-ring": ring
-  } as CSSProperties;
+  const order = diagonalSnakeOrderValue(index);
+  const pathNorm = diagonalSnakeNormFromIndex(index);
+  const style = { "--dmx-diagonal-snake-order": order } as CSSProperties;
 
   if (reducedMotion || phase === "idle") {
     return {
       style: {
         ...style,
-        opacity: 0.2 + (1 - ring / MAX_MANHATTAN) * 0.75
+        opacity: 0.16 + pathNorm * 0.78
       }
     };
   }
 
-  return { className: "dmx-center-origin-ripple", style };
+  return { className: "dmx-diagonal-snake", style };
 };
 
-export function DotmSquare12({
+export function DotmSquare5({
   speed = 1.35,
   pattern = "full",
   animated = true,
   hoverAnimated = false,
   ...rest
-}: DotmSquare12Props) {
+}: DotmSquare5Props) {
   const reducedMotion = usePrefersReducedMotion();
   const { phase: matrixPhase, onMouseEnter, onMouseLeave } = useDotMatrixPhases({
     animated: Boolean(animated && !reducedMotion),
