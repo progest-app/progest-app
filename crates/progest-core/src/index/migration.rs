@@ -45,6 +45,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "search",
         sql: include_str!("migrations/0002_search.sql"),
     },
+    Migration {
+        version: 3,
+        name: "case_insensitive_path",
+        sql: include_str!("migrations/0003_case_insensitive_path.sql"),
+    },
 ];
 
 /// Errors surfaced by [`apply`].
