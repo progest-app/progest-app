@@ -58,7 +58,8 @@ const COLUMN_VISIBILITY_KEY = "progest:flatview-columns";
 const SORTING_KEY = "progest:flatview-sorting";
 
 const DEFAULT_COLUMN_VISIBILITY: VisibilityState = {
-  path: true,
+  filename: true,
+  path: false,
   tags: true,
   violations: true,
   kind: false,
@@ -477,10 +478,16 @@ function sortHits(hits: RichSearchHit[], sorting: SortingState): RichSearchHit[]
   return desc ? sorted.toReversed() : sorted;
 }
 
+function hitBasename(h: RichSearchHit): string {
+  return h.name ?? h.path.split("/").pop() ?? h.path;
+}
+
 function compareHits(a: RichSearchHit, b: RichSearchHit, col: HitsColumnId): number {
   switch (col) {
     case "path":
       return a.path.localeCompare(b.path);
+    case "filename":
+      return hitBasename(a).localeCompare(hitBasename(b));
     case "tags":
       return a.tags.join(" ").localeCompare(b.tags.join(" "));
     case "violations": {
@@ -497,12 +504,13 @@ function compareHits(a: RichSearchHit, b: RichSearchHit, col: HitsColumnId): num
 
 const SORT_LABELS: Record<HitsColumnId, string> = {
   path: "Path",
+  filename: "Filename",
   tags: "Tags",
   violations: "Violations",
   kind: "Kind",
   ext: "Extension",
 };
-const SORT_KEYS: HitsColumnId[] = ["path", "tags", "violations", "kind", "ext"];
+const SORT_KEYS: HitsColumnId[] = ["path", "filename", "tags", "violations", "kind", "ext"];
 const UNSORTED = "__unsorted__";
 
 /** Toolbar control for grid mode — pairs a column Select with an
