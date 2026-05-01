@@ -1,6 +1,7 @@
 import * as React from "react";
 import { FolderOpen, FolderPlus, Sparkles } from "lucide-react";
 
+import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
 import { DirectoryInspector } from "@/components/directory-inspector";
 import { DragDropProvider, DropOverlay, useDropZone } from "@/components/drag-drop-overlay";
@@ -37,6 +38,8 @@ import { SettingsProvider, useSettings } from "@/lib/settings-context";
 import { ThemeProvider } from "next-themes";
 import type { DirEntry, RichSearchHit } from "@/lib/ipc";
 import { Toaster } from "@/components/ui/sonner";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { useMenuEvents } from "@/lib/use-menu-events";
 
 import "./App.css";
 
@@ -91,7 +94,7 @@ export function App() {
 }
 
 function Shell() {
-  const { project } = useProject();
+  const { project, openPicker, bumpRefresh, openInitDialog } = useProject();
   const [selection, setSelection] = React.useState<Selection>(null);
   const [pendingConfirm, setPendingConfirm] = React.useState<{
     next: Selection;
@@ -180,6 +183,32 @@ function Shell() {
 
   const selectedDir = selection?.kind === "dir" ? selection.path : "";
 
+  useMenuEvents({
+    "menu:new-project": () => openInitDialog("new"),
+    "menu:open-project": () => void openPicker(),
+    "menu:new-file": () =>
+      window.dispatchEvent(new CustomEvent("progest:create", { detail: { kind: "file" } })),
+    "menu:new-folder": () =>
+      window.dispatchEvent(new CustomEvent("progest:create", { detail: { kind: "dir" } })),
+    "menu:settings": () => settings.openSettings(),
+    "menu:settings-app": () => settings.openSettings(),
+    "menu:toggle-tree": () => togglePanel("tree"),
+    "menu:toggle-flat": () => togglePanel("flat"),
+    "menu:toggle-inspector": () => togglePanel("inspector"),
+    "menu:palette": () => window.dispatchEvent(new CustomEvent("progest:toggle-palette")),
+    "menu:rescan": () => bumpRefresh(),
+    "menu:import": () => void pickAndImport(),
+  });
+
+  const pickAndImport = React.useCallback(async () => {
+    const picked = await openFileDialog({ multiple: true });
+    if (!picked || (Array.isArray(picked) && picked.length === 0)) return;
+    const paths = Array.isArray(picked) ? picked : [picked];
+    setImportSources(paths);
+    setImportDest(undefined);
+    setImportOpen(true);
+  }, []);
+
   // --- import via drag & drop -----------------------------------------------
   const [importSources, setImportSources] = React.useState<string[]>([]);
   const [importDest, setImportDest] = React.useState<string | undefined>();
@@ -203,10 +232,30 @@ function Shell() {
     [project],
   );
 
+  const isMac = navigator.platform.includes("Mac");
+  const showShadcnMenu = !isMac || localStorage.getItem("progest:show-menubar") === "true";
+
+  const menuActions = {
+    onNewProject: () => openInitDialog("new"),
+    onOpenProject: () => void openPicker(),
+    onNewFile: () =>
+      window.dispatchEvent(new CustomEvent("progest:create", { detail: { kind: "file" } })),
+    onNewFolder: () =>
+      window.dispatchEvent(new CustomEvent("progest:create", { detail: { kind: "dir" } })),
+    onImport: () => void pickAndImport(),
+    onSettings: () => settings.openSettings(),
+    onToggleTree: () => togglePanel("tree"),
+    onToggleFlat: () => togglePanel("flat"),
+    onToggleInspector: () => togglePanel("inspector"),
+    onPalette: () => window.dispatchEvent(new CustomEvent("progest:toggle-palette")),
+    onRescan: () => bumpRefresh(),
+  };
+
   return (
     <DragDropProvider onDrop={handleDrop}>
       <div className="grid h-screen grid-rows-[auto_1fr_auto] bg-background">
         <TitleBar panels={panels} onTogglePanel={togglePanel} />
+        {showShadcnMenu ? <AppMenubar {...menuActions} /> : null}
         {project ? (
           <MainShell
             onPickHit={onPickFlatHit}

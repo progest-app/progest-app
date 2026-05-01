@@ -12,6 +12,7 @@ mod delete_commands;
 mod file_inspector_commands;
 mod import_commands;
 mod lint_commands;
+mod menu;
 mod progress;
 mod project_init_commands;
 mod recent;
@@ -106,7 +107,12 @@ pub fn run() {
             ai_commands::ai_set_config,
             ai_commands::ai_delete_key,
         ])
+        .on_menu_event(|app, event| {
+            menu::handle_menu_event(app, event.id().as_ref());
+        })
         .setup(|app| {
+            let menu = menu::build_menu(app.handle())?;
+            app.set_menu(menu)?;
             // We build the main window programmatically rather than via
             // tauri.conf.json so we can call `traffic_light_position`
             // on the builder. As of Tauri 2.10.x the JSON-config path
