@@ -51,6 +51,8 @@ serde_yaml = "0.9"
 heck = "0.5"
 proptest = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
+dunce = "1"
+which = "7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "tiff", "gif", "bmp", "rayon"] }
 psd = "0.3"
 libheif-rs = "1"

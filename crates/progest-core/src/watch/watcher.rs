@@ -70,7 +70,7 @@ impl Watcher {
         root: PathBuf,
         debounce: Duration,
     ) -> Result<(Self, Receiver<ChangeSet>), WatchError> {
-        let root = std::fs::canonicalize(&root).unwrap_or(root);
+        let root = dunce::canonicalize(&root).unwrap_or(root);
         let fs = StdFileSystem::new(root.clone());
         let ignore = IgnoreRules::load(&fs).map_err(WatchError::Ignore)?;
         let matcher = ignore.matcher().clone();

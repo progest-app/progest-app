@@ -458,9 +458,9 @@ pub fn files_list_dir(
     // Defense against escape attempts via "..": the canonicalized
     // request path must remain inside the project root.
     let canonical_root =
-        std::fs::canonicalize(ctx.root.root()).map_err(|e| format!("canonicalize root: {e}"))?;
+        dunce::canonicalize(ctx.root.root()).map_err(|e| format!("canonicalize root: {e}"))?;
     let canonical_abs =
-        std::fs::canonicalize(&abs).map_err(|e| format!("canonicalize `{rel}`: {e}"))?;
+        dunce::canonicalize(&abs).map_err(|e| format!("canonicalize `{rel}`: {e}"))?;
     if !canonical_abs.starts_with(&canonical_root) {
         return Err(format!("path `{rel}` escapes project root"));
     }

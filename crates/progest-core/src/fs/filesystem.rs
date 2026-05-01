@@ -145,6 +145,11 @@ impl FileSystem for StdFileSystem {
             tmp.sync_all().map_err(|e| FsError::from_io(path, e))?;
         }
 
+        #[cfg(windows)]
+        if target.exists() {
+            let _ = fs::remove_file(&target);
+        }
+
         match fs::rename(&tmp_path, &target) {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -155,7 +160,12 @@ impl FileSystem for StdFileSystem {
     }
 
     fn rename(&self, from: &ProjectPath, to: &ProjectPath) -> Result<(), FsError> {
-        fs::rename(self.resolve(from), self.resolve(to)).map_err(|e| FsError::from_io(from, e))
+        let to_abs = self.resolve(to);
+        #[cfg(windows)]
+        if to_abs.exists() {
+            let _ = fs::remove_file(&to_abs);
+        }
+        fs::rename(self.resolve(from), to_abs).map_err(|e| FsError::from_io(from, e))
     }
 
     fn exists(&self, path: &ProjectPath) -> bool {
@@ -265,6 +275,27 @@ mod tests {
         fs.write_atomic(&path, b"bye").unwrap();
         fs.remove_file(&path).unwrap();
         assert!(!fs.exists(&path));
+    }
+
+    #[test]
+    fn write_atomic_overwrites_existing_file() {
+        let (_dir, fs) = setup();
+        let path = ProjectPath::new("overwrite.txt").unwrap();
+        fs.write_atomic(&path, b"first").unwrap();
+        fs.write_atomic(&path, b"second").unwrap();
+        assert_eq!(fs.read(&path).unwrap(), b"second");
+    }
+
+    #[test]
+    fn rename_replaces_existing_destination() {
+        let (_dir, fs) = setup();
+        let a = ProjectPath::new("src.txt").unwrap();
+        let b = ProjectPath::new("dst.txt").unwrap();
+        fs.write_atomic(&a, b"new").unwrap();
+        fs.write_atomic(&b, b"old").unwrap();
+        fs.rename(&a, &b).unwrap();
+        assert!(!fs.exists(&a));
+        assert_eq!(fs.read(&b).unwrap(), b"new");
     }
 
     #[test]

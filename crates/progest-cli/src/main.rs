@@ -370,7 +370,7 @@ fn main() -> Result<ExitCode> {
 
     let cli = Cli::parse();
     let cwd = match cli.project {
-        Some(ref p) => std::fs::canonicalize(p)
+        Some(ref p) => dunce::canonicalize(p)
             .with_context(|| format!("resolving project path `{}`", p.display()))?,
         None => std::env::current_dir()?,
     };

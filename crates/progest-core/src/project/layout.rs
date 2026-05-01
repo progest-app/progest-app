@@ -82,10 +82,10 @@ pub const GITIGNORE_ENTRIES: &[&str] =
 /// [`ProjectId`]: super::document::ProjectId
 pub fn initialize(root: &Path, name: &str) -> Result<ProjectRoot, ProjectError> {
     let root = if root.exists() {
-        fs::canonicalize(root)?
+        dunce::canonicalize(root)?
     } else {
         fs::create_dir_all(root)?;
-        fs::canonicalize(root)?
+        dunce::canonicalize(root)?
     };
     let dot = root.join(DOT_DIR);
     if dot.exists() {
@@ -170,7 +170,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn abs(path: &Path) -> PathBuf {
-        fs::canonicalize(path).unwrap()
+        dunce::canonicalize(path).unwrap()
     }
 
     #[test]

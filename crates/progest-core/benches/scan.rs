@@ -49,7 +49,7 @@ fn prepare_project() -> TempDir {
         }
     }
 
-    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    let root = dunce::canonicalize(tmp.path()).unwrap();
     let fs_impl = StdFileSystem::new(root.clone());
     let meta = StdMetaStore::new(fs_impl.clone());
     let index_path = root.join(".progest").join("index.db");
@@ -69,7 +69,7 @@ fn prepare_project() -> TempDir {
 
 fn bench_incremental_scan(c: &mut Criterion) {
     let tmp = prepare_project();
-    let root = std::fs::canonicalize(tmp.path()).unwrap();
+    let root = dunce::canonicalize(tmp.path()).unwrap();
 
     let mut group = c.benchmark_group("incremental_scan_10k");
     // 10k-file scans take noticeable wall time even on the cheap-compare
