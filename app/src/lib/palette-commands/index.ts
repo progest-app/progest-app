@@ -17,6 +17,7 @@
 
 import * as React from "react";
 
+import { useAiCommands } from "./ai-commands";
 import { useProjectCommands } from "./project-commands";
 import { useThemeCommands } from "./theme-commands";
 import type { PaletteCommand } from "./types";
@@ -27,7 +28,8 @@ export { fuzzyMatch } from "./types";
 export function usePaletteCommands(): PaletteCommand[] {
   const project = useProjectCommands();
   const theme = useThemeCommands();
-  return React.useMemo(() => [...project, ...theme], [project, theme]);
+  const ai = useAiCommands();
+  return React.useMemo(() => [...project, ...theme, ...ai], [project, theme, ai]);
 }
 
 /**

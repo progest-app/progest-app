@@ -4,12 +4,17 @@ import { toast } from "sonner";
 
 import {
   IpcError,
+  aiGetConfig,
+  aiSetKey,
+  aiSuggest,
   fileDeleteApply,
   fileDeletePreview,
   notesRead,
   notesWrite,
   tagAdd,
   tagRemove,
+  type AiConfigResponse,
+  type AiSuggestionWire,
   type DeletePreview,
   type RichSearchHit,
 } from "@/lib/ipc";
@@ -60,6 +65,7 @@ export function FileInspector(props: { hit: RichSearchHit; onDeleted?: (() => vo
         <TagsEditor hit={hit} disabled={!isIndexed} />
         <NotesEditor hit={hit} disabled={!isIndexed} />
         <CustomFieldsBlock hit={hit} />
+        {isIndexed ? <AiSuggestionsSection hit={hit} /> : null}
         {!isIndexed ? (
           <div className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-warning">
             This file isn&apos;t indexed yet — run <code>progest scan</code> (or wait for the next
@@ -415,6 +421,200 @@ function CustomFieldsBlock(props: { hit: RichSearchHit }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+// ── AI Suggestions ─────────────────────────────────────────────────
+
+const AI_TYPES = ["naming", "tags", "notes", "placement"] as const;
+type AiType = (typeof AI_TYPES)[number];
+
+function AiSuggestionsSection(props: { hit: RichSearchHit }) {
+  const { hit } = props;
+  const { bumpRefresh } = useProject();
+  const [config, setConfig] = React.useState<AiConfigResponse | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [suggestions, setSuggestions] = React.useState<AiSuggestionWire[]>([]);
+  const [activeType, setActiveType] = React.useState<AiType>("naming");
+  const [includeNotes, setIncludeNotes] = React.useState(false);
+  const [keyInput, setKeyInput] = React.useState("");
+  const [showKeyForm, setShowKeyForm] = React.useState(false);
+  const [savingKey, setSavingKey] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    aiGetConfig()
+      .then((c) => {
+        if (!cancelled) setConfig(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    setSuggestions([]);
+    setError(null);
+  }, [hit.path]);
+
+  const handleSuggest = async (type_: AiType) => {
+    setActiveType(type_);
+    setBusy(true);
+    setError(null);
+    setSuggestions([]);
+    try {
+      const resp = await aiSuggest(hit.path, type_, includeNotes);
+      setSuggestions(resp.suggestions);
+    } catch (e) {
+      setError(e instanceof IpcError ? e.raw : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleApplyTag = async (tag: string) => {
+    try {
+      await tagAdd(hit.file_id, tag);
+      bumpRefresh();
+      toast.success(`Tag "${tag}" added`);
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    }
+  };
+
+  const handleApplyNotes = async (notes: string) => {
+    try {
+      await notesWrite(hit.path, notes);
+      bumpRefresh();
+      toast.success("Notes updated");
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    }
+  };
+
+  const handleSaveKey = async () => {
+    if (!keyInput.trim() || !config) return;
+    setSavingKey(true);
+    try {
+      await aiSetKey(config.provider, keyInput.trim());
+      setKeyInput("");
+      setShowKeyForm(false);
+      const newConfig = await aiGetConfig();
+      setConfig(newConfig);
+      toast.success("API key saved");
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  if (!config) return null;
+
+  if (!config.has_key) {
+    return (
+      <section className="grid gap-1.5">
+        <Label className="text-muted-foreground">AI suggestions</Label>
+        {showKeyForm ? (
+          <div className="grid gap-2">
+            <Input
+              type="password"
+              placeholder={`${config.provider} API key`}
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              disabled={savingKey}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveKey();
+              }}
+            />
+            <div className="flex gap-1">
+              <Button
+                size="xs"
+                onClick={() => void handleSaveKey()}
+                disabled={savingKey || !keyInput.trim()}
+              >
+                {savingKey ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setShowKeyForm(false)}
+                disabled={savingKey}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button size="xs" variant="outline" onClick={() => setShowKeyForm(true)}>
+            Configure API key
+          </Button>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-1.5">
+      <Label className="text-muted-foreground">AI suggestions</Label>
+      <div className="flex flex-wrap gap-1">
+        {AI_TYPES.map((t) => (
+          <Button
+            key={t}
+            size="xs"
+            variant={activeType === t && suggestions.length > 0 ? "default" : "outline"}
+            onClick={() => void handleSuggest(t)}
+            disabled={busy}
+          >
+            {t}
+          </Button>
+        ))}
+      </div>
+      {activeType === "notes" ? (
+        <label className="flex items-center gap-1.5 text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={includeNotes}
+            onChange={(e) => setIncludeNotes(e.target.checked)}
+            className="accent-primary"
+          />
+          Include existing notes in AI context
+        </label>
+      ) : null}
+      {busy ? (
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <DotmSquare1 size={16} dotSize={2} animated />
+          Generating…
+        </div>
+      ) : null}
+      {error ? <div className="text-destructive">{error}</div> : null}
+      {suggestions.length > 0 ? (
+        <ul className="grid gap-1">
+          {suggestions.map((s, i) => (
+            <li key={i} className="rounded-md border bg-muted/30 px-2 py-1.5">
+              <div className="flex items-start justify-between gap-2">
+                <span className="break-words font-mono">{s.value}</span>
+                {activeType === "tags" ? (
+                  <Button size="xs" variant="ghost" onClick={() => void handleApplyTag(s.value)}>
+                    Apply
+                  </Button>
+                ) : null}
+                {activeType === "notes" ? (
+                  <Button size="xs" variant="ghost" onClick={() => void handleApplyNotes(s.value)}>
+                    Apply
+                  </Button>
+                ) : null}
+              </div>
+              {s.explanation ? (
+                <div className="mt-0.5 text-muted-foreground">{s.explanation}</div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
