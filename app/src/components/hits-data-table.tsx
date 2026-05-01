@@ -9,7 +9,15 @@ import {
   type SortingState,
   type VisibilityState,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, FileIcon } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  FileIcon,
+  Layers,
+} from "lucide-react";
 
 import { FileContextMenu } from "@/components/file-context-menu";
 import {
@@ -30,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { ViolationBadges } from "@/components/violation-badges";
 import type { RichSearchHit } from "@/lib/ipc";
 import { useDragOut } from "@/lib/use-drag-out";
+import type { SequenceMap } from "@/lib/sequence-grouping";
 import { cn } from "@/lib/utils";
 
 function basename(hit: RichSearchHit): string {
@@ -59,6 +68,7 @@ export function HitsDataTable(props: {
   onColumnVisibilityChange: (next: VisibilityState) => void;
   columnSizing: ColumnSizingState;
   onColumnSizingChange: (next: ColumnSizingState) => void;
+  sequenceMap?: SequenceMap | undefined;
 }) {
   const columns = React.useMemo<ColumnDef<RichSearchHit>[]>(
     () => [
@@ -206,15 +216,12 @@ export function HitsDataTable(props: {
             </TableCell>
           </TableRow>
         ) : (
-          table
-            .getRowModel()
-            .rows.map((row) => (
-              <HitRow
-                key={row.original.file_id || row.original.path}
-                row={row}
-                onPick={props.onPick}
-              />
-            ))
+          <SequenceAwareRows
+            rows={table.getRowModel().rows}
+            onPick={props.onPick}
+            sequenceMap={props.sequenceMap}
+            colCount={table.getAllLeafColumns().length}
+          />
         )}
       </TableBody>
     </Table>
@@ -222,23 +229,27 @@ export function HitsDataTable(props: {
 }
 
 function HitRow(props: {
-  row: ReturnType<ReturnType<typeof useReactTable<RichSearchHit>>["getRowModel"]>["rows"][number];
+  row: RowType;
   onPick: ((hit: RichSearchHit) => void) | undefined;
+  inSequence?: boolean | undefined;
 }) {
   const { row } = props;
   const drag = useDragOut(row.original.path);
   return (
     <FileContextMenu path={row.original.path}>
       <TableRow
-        className="cursor-pointer"
+        className={cn("cursor-pointer", props.inSequence && "bg-muted/20")}
         onClick={() => props.onPick?.(row.original)}
         onMouseDown={drag.onMouseDown}
       >
-        {row.getVisibleCells().map((cell) => (
+        {row.getVisibleCells().map((cell, i) => (
           <TableCell
             key={cell.id}
             className="overflow-hidden text-xs"
-            style={{ width: cell.column.getSize() }}
+            style={{
+              width: cell.column.getSize(),
+              paddingLeft: props.inSequence && i === 0 ? 28 : undefined,
+            }}
           >
             {flexRender(cell.column.columnDef.cell, cell.getContext())}
           </TableCell>
@@ -246,6 +257,85 @@ function HitRow(props: {
       </TableRow>
     </FileContextMenu>
   );
+}
+
+type RowType = ReturnType<
+  ReturnType<typeof useReactTable<RichSearchHit>>["getRowModel"]
+>["rows"][number];
+
+function SequenceAwareRows(props: {
+  rows: RowType[];
+  onPick: ((hit: RichSearchHit) => void) | undefined;
+  sequenceMap?: SequenceMap | undefined;
+  colCount: number;
+}) {
+  const { rows, onPick, sequenceMap, colCount } = props;
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
+
+  const toggle = React.useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  if (!sequenceMap || sequenceMap.sequences.size === 0) {
+    return rows.map((row) => (
+      <HitRow key={row.original.file_id || row.original.path} row={row} onPick={onPick} />
+    ));
+  }
+
+  const rendered: React.ReactNode[] = [];
+  const seenSeqs = new Set<string>();
+
+  for (const row of rows) {
+    const hitId = row.original.file_id || row.original.path;
+    const seqKey = sequenceMap.hitToSeq.get(hitId);
+
+    if (!seqKey) {
+      rendered.push(<HitRow key={hitId} row={row} onPick={onPick} />);
+      continue;
+    }
+
+    if (seenSeqs.has(seqKey)) {
+      if (collapsed.has(seqKey)) continue;
+      rendered.push(<HitRow key={hitId} row={row} onPick={onPick} inSequence />);
+      continue;
+    }
+
+    seenSeqs.add(seqKey);
+    const seq = sequenceMap.sequences.get(seqKey)!;
+    const isCollapsed = collapsed.has(seqKey);
+    rendered.push(
+      <TableRow
+        key={`seq-${seqKey}`}
+        className="cursor-pointer bg-muted/30 hover:bg-muted/50"
+        onClick={() => toggle(seqKey)}
+      >
+        <TableCell colSpan={colCount} className="text-xs">
+          <div className="flex items-center gap-2">
+            {isCollapsed ? (
+              <ChevronRight className="size-3.5 shrink-0" />
+            ) : (
+              <ChevronDown className="size-3.5 shrink-0" />
+            )}
+            <Layers className="size-3.5 shrink-0 opacity-60" />
+            <span className="font-mono">
+              {seq.stemPrefix}[{seq.rangeStart}–{seq.rangeEnd}].{seq.extension}
+            </span>
+            <span className="text-muted-foreground">({seq.count} files)</span>
+          </div>
+        </TableCell>
+      </TableRow>,
+    );
+    if (!isCollapsed) {
+      rendered.push(<HitRow key={hitId} row={row} onPick={onPick} inSequence />);
+    }
+  }
+
+  return rendered;
 }
 
 /**

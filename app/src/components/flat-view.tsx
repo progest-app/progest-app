@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDragOut } from "@/lib/use-drag-out";
+import { buildSequenceMap } from "@/lib/sequence-grouping";
 import { ViolationBadges } from "@/components/violation-badges";
 import {
   ColumnVisibilityMenu,
@@ -151,6 +152,8 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
     () => sortHits(response?.hits ?? [], sorting),
     [response, sorting],
   );
+
+  const seqMap = React.useMemo(() => buildSequenceMap(sortedHits), [sortedHits]);
 
   const gridFileIds = React.useMemo(
     () => (display === "grid" ? sortedHits.map((h) => h.file_id).filter(Boolean) : []),
@@ -414,6 +417,7 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
               onColumnVisibilityChange={setColumnVisibility}
               columnSizing={columnSizing}
               onColumnSizingChange={setColumnSizing}
+              sequenceMap={seqMap}
             />
           ) : (
             <HitGrid hits={sortedHits} onPick={props.onPickHit} thumbUrls={thumbUrls} />
