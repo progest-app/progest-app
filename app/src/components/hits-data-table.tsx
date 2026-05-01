@@ -37,7 +37,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ViolationBadges } from "@/components/violation-badges";
 import type { RichSearchHit } from "@/lib/ipc";
-import { useDragOut } from "@/lib/use-drag-out";
+import { useDragOut, useDragOutMulti } from "@/lib/use-drag-out";
 import type { SequenceMap } from "@/lib/sequence-grouping";
 import { cn } from "@/lib/utils";
 
@@ -308,27 +308,18 @@ function SequenceAwareRows(props: {
     seenSeqs.add(seqKey);
     const seq = sequenceMap.sequences.get(seqKey)!;
     const isCollapsed = collapsed.has(seqKey);
+    const memberPaths = rows
+      .filter((r) => sequenceMap.hitToSeq.get(r.original.file_id || r.original.path) === seqKey)
+      .map((r) => r.original.path);
     rendered.push(
-      <TableRow
+      <SeqHeaderRow
         key={`seq-${seqKey}`}
-        className="cursor-pointer bg-muted/30 hover:bg-muted/50"
-        onClick={() => toggle(seqKey)}
-      >
-        <TableCell colSpan={colCount} className="text-xs">
-          <div className="flex items-center gap-2">
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
-            <Layers className="size-3.5 shrink-0 opacity-60" />
-            <span className="font-mono">
-              {seq.stemPrefix}[{seq.rangeStart}–{seq.rangeEnd}].{seq.extension}
-            </span>
-            <span className="text-muted-foreground">({seq.count} files)</span>
-          </div>
-        </TableCell>
-      </TableRow>,
+        seq={seq}
+        collapsed={isCollapsed}
+        onToggle={() => toggle(seqKey)}
+        colCount={colCount}
+        memberPaths={memberPaths}
+      />,
     );
     if (!isCollapsed) {
       rendered.push(<HitRow key={hitId} row={row} onPick={onPick} inSequence />);
@@ -336,6 +327,39 @@ function SequenceAwareRows(props: {
   }
 
   return rendered;
+}
+
+function SeqHeaderRow(props: {
+  seq: import("@/lib/sequence-grouping").SequenceInfo;
+  collapsed: boolean;
+  onToggle: () => void;
+  colCount: number;
+  memberPaths: string[];
+}) {
+  const { seq, collapsed, onToggle, colCount, memberPaths } = props;
+  const drag = useDragOutMulti(memberPaths);
+  return (
+    <TableRow
+      className="cursor-pointer bg-muted/30 hover:bg-muted/50"
+      onClick={onToggle}
+      onMouseDown={drag.onMouseDown}
+    >
+      <TableCell colSpan={colCount} className="text-xs">
+        <div className="flex items-center gap-2">
+          {collapsed ? (
+            <ChevronRight className="size-3.5 shrink-0" />
+          ) : (
+            <ChevronDown className="size-3.5 shrink-0" />
+          )}
+          <Layers className="size-3.5 shrink-0 opacity-60" />
+          <span className="font-mono">
+            {seq.stemPrefix}[{seq.rangeStart}–{seq.rangeEnd}].{seq.extension}
+          </span>
+          <span className="text-muted-foreground">({seq.count} files)</span>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
 }
 
 /**
