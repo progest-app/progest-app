@@ -2,7 +2,7 @@
 
 use progest_core::create::{create_dir, create_file};
 use progest_core::fs::{FileSystem, ProjectPath};
-use progest_core::index::Index;
+use progest_core::index::{Index, SearchProjection};
 use progest_core::meta::StdMetaStore;
 use progest_core::naming::FillMode;
 use progest_core::naming::types::{NameCandidate, Segment};
@@ -125,6 +125,25 @@ pub async fn fs_rename(
             .first()
             .map(|op| op.to.as_str().to_owned())
             .unwrap_or_default();
+
+        // Update the index name/ext columns so FlatView shows the new
+        // name immediately (Rename::apply updates path but not name).
+        if let Some(op) = outcome.applied.first()
+            && let Ok(Some(row)) = ctx.index.get_file_by_path(&op.to)
+        {
+            let name = op.to.file_name().map(str::to_string);
+            let ext = op.to.extension().map(str::to_ascii_lowercase);
+            let _ = ctx.index.set_search_projection(
+                &row.file_id,
+                &SearchProjection {
+                    name,
+                    ext,
+                    notes: None,
+                    updated_at: None,
+                    is_orphan: false,
+                },
+            );
+        }
 
         Ok(RenameOutcomeWire {
             from: from_path.as_str().to_owned(),
