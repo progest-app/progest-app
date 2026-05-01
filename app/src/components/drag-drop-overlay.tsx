@@ -2,6 +2,8 @@ import * as React from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Import } from "lucide-react";
 
+import { isDragOutActive } from "@/lib/use-drag-out";
+
 type DragDropState = {
   active: boolean;
   paths: string[];
@@ -81,6 +83,7 @@ export function DragDropProvider(props: {
       unlisten = await appWindow.onDragDropEvent((event) => {
         const p = event.payload;
         if (p.type === "enter") {
+          if (isDragOutActive()) return;
           setState({
             active: true,
             paths: p.paths,

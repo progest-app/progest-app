@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ViolationBadges } from "@/components/violation-badges";
 import type { RichSearchHit } from "@/lib/ipc";
+import { useDragOut } from "@/lib/use-drag-out";
 import { cn } from "@/lib/utils";
 
 function basename(hit: RichSearchHit): string {
@@ -205,27 +206,45 @@ export function HitsDataTable(props: {
             </TableCell>
           </TableRow>
         ) : (
-          table.getRowModel().rows.map((row) => (
-            <FileContextMenu
-              key={row.original.file_id || row.original.path}
-              path={row.original.path}
-            >
-              <TableRow className="cursor-pointer" onClick={() => props.onPick?.(row.original)}>
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    className="overflow-hidden text-xs"
-                    style={{ width: cell.column.getSize() }}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </FileContextMenu>
-          ))
+          table
+            .getRowModel()
+            .rows.map((row) => (
+              <HitRow
+                key={row.original.file_id || row.original.path}
+                row={row}
+                onPick={props.onPick}
+              />
+            ))
         )}
       </TableBody>
     </Table>
+  );
+}
+
+function HitRow(props: {
+  row: ReturnType<ReturnType<typeof useReactTable<RichSearchHit>>["getRowModel"]>["rows"][number];
+  onPick: ((hit: RichSearchHit) => void) | undefined;
+}) {
+  const { row } = props;
+  const drag = useDragOut(row.original.path);
+  return (
+    <FileContextMenu path={row.original.path}>
+      <TableRow
+        className="cursor-pointer"
+        onClick={() => props.onPick?.(row.original)}
+        onMouseDown={drag.onMouseDown}
+      >
+        {row.getVisibleCells().map((cell) => (
+          <TableCell
+            key={cell.id}
+            className="overflow-hidden text-xs"
+            style={{ width: cell.column.getSize() }}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </TableCell>
+        ))}
+      </TableRow>
+    </FileContextMenu>
   );
 }
 

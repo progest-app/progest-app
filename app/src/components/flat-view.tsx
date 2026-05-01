@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useDragOut } from "@/lib/use-drag-out";
 import { ViolationBadges } from "@/components/violation-badges";
 import {
   ColumnVisibilityMenu,
@@ -608,40 +609,55 @@ function HitGrid(props: {
       className="grid gap-2 p-3"
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}
     >
-      {props.hits.map((hit) => {
-        const thumbUrl = props.thumbUrls[hit.file_id];
-        return (
-          <FileContextMenu key={hit.file_id} path={hit.path}>
-            <button
-              type="button"
-              className="flex min-w-0 flex-col gap-1 overflow-hidden rounded-md border p-2 text-left hover:bg-accent"
-              onClick={() => props.onPick?.(hit)}
-            >
-              <div className="flex w-full h-full aspect-square items-center justify-center rounded bg-muted/40 overflow-hidden">
-                {thumbUrl ? (
-                  <img
-                    src={thumbUrl}
-                    alt=""
-                    className="size-full object-cover"
-                    loading="lazy"
-                    draggable={false}
-                  />
-                ) : (
-                  <FileIcon className="size-8 opacity-50" />
-                )}
-              </div>
-              <div className="w-full min-w-0 truncate text-xs font-mono" title={hit.path}>
-                {hit.name ?? hit.path.split("/").pop()}
-              </div>
-              <div className="flex w-full min-w-0 items-center justify-between text-[0.625rem] text-muted-foreground">
-                <span>{hit.kind}</span>
-                <ViolationBadges counts={hit.violations} />
-              </div>
-            </button>
-          </FileContextMenu>
-        );
-      })}
+      {props.hits.map((hit) => (
+        <GridCard
+          key={hit.file_id}
+          hit={hit}
+          thumbUrl={props.thumbUrls[hit.file_id]}
+          onPick={props.onPick}
+        />
+      ))}
     </div>
+  );
+}
+
+function GridCard(props: {
+  hit: RichSearchHit;
+  thumbUrl: string | undefined;
+  onPick: ((hit: RichSearchHit) => void) | undefined;
+}) {
+  const { hit, thumbUrl } = props;
+  const drag = useDragOut(hit.path);
+  return (
+    <FileContextMenu path={hit.path}>
+      <button
+        type="button"
+        className="flex min-w-0 flex-col gap-1 overflow-hidden rounded-md border p-2 text-left hover:bg-accent"
+        onClick={() => props.onPick?.(hit)}
+        onMouseDown={drag.onMouseDown}
+      >
+        <div className="flex h-full w-full items-center justify-center overflow-hidden rounded bg-muted/40 aspect-square">
+          {thumbUrl ? (
+            <img
+              src={thumbUrl}
+              alt=""
+              className="size-full object-cover"
+              loading="lazy"
+              draggable={false}
+            />
+          ) : (
+            <FileIcon className="size-8 opacity-50" />
+          )}
+        </div>
+        <div className="w-full min-w-0 truncate text-xs font-mono" title={hit.path}>
+          {hit.name ?? hit.path.split("/").pop()}
+        </div>
+        <div className="flex w-full min-w-0 items-center justify-between text-[0.625rem] text-muted-foreground">
+          <span>{hit.kind}</span>
+          <ViolationBadges counts={hit.violations} />
+        </div>
+      </button>
+    </FileContextMenu>
   );
 }
 

@@ -39,6 +39,7 @@ import {
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
 import { ViolationDots } from "@/components/violation-badges";
+import { useDragOut } from "@/lib/use-drag-out";
 import { cn } from "@/lib/utils";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
@@ -509,6 +510,8 @@ function FileNode(props: {
   const indent = depth * 12;
   const isRenaming = edit?.mode === "rename" && edit.path === entry.path;
 
+  const drag = useDragOut(entry.path);
+
   const handleDelete = React.useCallback(async () => {
     try {
       await fileDeleteApply(entry.path);
@@ -528,6 +531,7 @@ function FileNode(props: {
           style={{ paddingLeft: indent + 16 }}
           onClick={() => onPick?.(entry)}
           onDoubleClick={() => void fsOpen(entry.path)}
+          onMouseDown={drag.onMouseDown}
         >
           <FileIcon className="size-3.5 shrink-0 opacity-60" />
           {isRenaming ? (
