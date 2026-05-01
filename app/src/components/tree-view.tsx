@@ -166,7 +166,10 @@ export function TreeView(props: {
         return;
       }
       try {
-        await fsRename(edit.path, newName);
+        const result = await fsRename(edit.path, newName);
+        window.dispatchEvent(
+          new CustomEvent("progest:renamed", { detail: { from: edit.path, to: result.to } }),
+        );
         toast.success(`Renamed to ${newName}`);
         bumpRefresh();
       } catch (e) {

@@ -63,7 +63,10 @@ export function FileContextMenu(props: FileContextMenuProps) {
     setRenameBusy(true);
     setRenameError(null);
     try {
-      await fsRename(props.path, trimmed);
+      const result = await fsRename(props.path, trimmed);
+      window.dispatchEvent(
+        new CustomEvent("progest:renamed", { detail: { from: props.path, to: result.to } }),
+      );
       setRenameOpen(false);
       bumpRefresh();
       toast.success(`Renamed to ${trimmed}`);
