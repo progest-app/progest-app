@@ -1,5 +1,5 @@
 import * as React from "react";
-import { RefreshCw, Settings, Trash2 } from "lucide-react";
+import { Settings, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -26,6 +26,10 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const AI_PROVIDERS = ["anthropic", "openai"] as const;
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+};
 
 type SettingsDialogProps = {
   open: boolean;
@@ -103,7 +107,7 @@ function AiSettingsTab() {
       await aiSetConfig({ provider });
       setKeyInput("");
       await loadConfig();
-      toast.success(`API key saved for ${provider}`);
+      toast.success(`API key saved for ${PROVIDER_LABELS[provider] ?? provider}`);
     } catch (e) {
       setError(e instanceof IpcError ? e.raw : String(e));
     } finally {
@@ -148,73 +152,89 @@ function AiSettingsTab() {
 
   return (
     <div className="grid gap-4">
-      {/* Provider */}
+      {/* Provider + API Key (unified section) */}
       <div className="grid gap-1.5">
-        <Label>Provider</Label>
-        <div className="flex gap-1.5">
-          {AI_PROVIDERS.map((p) => (
-            <Button
-              key={p}
-              size="sm"
-              variant={provider === p ? "default" : "outline"}
-              onClick={() => setProvider(p)}
-              disabled={saving}
-              className="flex-1 capitalize"
-            >
-              {p}
-            </Button>
-          ))}
-        </div>
+        <Label>Provider &amp; API Key</Label>
+        {config?.has_key ? (
+          <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">
+                {PROVIDER_LABELS[config.provider] ?? config.provider}
+              </span>
+              <span className="text-xs text-emerald-600 dark:text-emerald-400">✓ Key stored</span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                className="text-destructive hover:bg-destructive/10"
+                onClick={() => void handleDeleteKey()}
+                disabled={saving}
+              >
+                <Trash2 className="mr-1 size-3" />
+                Remove key
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-2 rounded-md border p-3">
+            <div className="flex gap-1.5">
+              {AI_PROVIDERS.map((p) => (
+                <Button
+                  key={p}
+                  size="sm"
+                  variant={provider === p ? "default" : "outline"}
+                  onClick={() => setProvider(p)}
+                  disabled={saving}
+                  className="flex-1"
+                >
+                  {PROVIDER_LABELS[p] ?? p}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                placeholder={`${PROVIDER_LABELS[provider] ?? provider} API key`}
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                disabled={saving}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleSaveKey();
+                }}
+                className="flex-1"
+              />
+              <Button
+                size="sm"
+                onClick={() => void handleSaveKey()}
+                disabled={saving || !keyInput.trim()}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Model */}
       <div className="grid gap-1.5">
         <Label htmlFor="ai-model">Model</Label>
-        <Input
-          id="ai-model"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder={provider === "anthropic" ? "claude-sonnet-4-20250514" : "gpt-4.1-mini"}
-          disabled={saving}
-        />
-      </div>
-
-      {/* API Key */}
-      <div className="grid gap-1.5">
-        <Label>API Key</Label>
-        {config?.has_key ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Key stored for {config.provider}</span>
-            <Button
-              size="xs"
-              variant="outline"
-              className="text-destructive hover:bg-destructive/10"
-              onClick={() => void handleDeleteKey()}
-              disabled={saving}
-            >
-              <Trash2 className="mr-1 size-3" />
-              Remove
-            </Button>
-          </div>
-        ) : null}
         <div className="flex gap-2">
           <Input
-            type="password"
-            placeholder={config?.has_key ? "Replace existing key…" : `${provider} API key`}
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
+            id="ai-model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder={provider === "anthropic" ? "claude-sonnet-4-20250514" : "gpt-4.1-mini"}
             disabled={saving}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleSaveKey();
-            }}
             className="flex-1"
           />
           <Button
             size="sm"
-            onClick={() => void handleSaveKey()}
-            disabled={saving || !keyInput.trim()}
+            variant="outline"
+            onClick={() => void handleSaveConfig()}
+            disabled={saving}
           >
-            {saving ? "Saving…" : "Save key"}
+            {saving ? "Saving…" : "Save"}
           </Button>
         </div>
       </div>
@@ -227,14 +247,16 @@ function AiSettingsTab() {
             Log AI requests to .progest/local/ai-log.jsonl
           </span>
         </div>
-        <Switch id="audit-log" checked={auditLog} onCheckedChange={setAuditLog} disabled={saving} />
+        <Switch
+          id="audit-log"
+          checked={auditLog}
+          onCheckedChange={(checked) => {
+            setAuditLog(checked);
+            void aiSetConfig({ audit_log: checked });
+          }}
+          disabled={saving}
+        />
       </div>
-
-      {/* Save config button */}
-      <Button onClick={() => void handleSaveConfig()} disabled={saving} className="w-full">
-        <RefreshCw className="mr-1.5 size-3.5" />
-        Save settings
-      </Button>
 
       {error ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">

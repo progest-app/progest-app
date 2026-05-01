@@ -321,9 +321,11 @@ function InspectorPane(props: {
   onFileDeleted?: (() => void) | undefined;
   inspectorRef: React.RefObject<FileInspectorHandle | null>;
 }) {
+  const { refreshTick } = useProject();
   if (props.selection?.kind === "file") {
     return (
       <FileInspector
+        key={`${props.selection.hit.path}:${refreshTick}`}
         ref={props.inspectorRef}
         hit={props.selection.hit}
         onDeleted={props.onFileDeleted}
