@@ -613,6 +613,14 @@ export async function aiSetKey(provider: string, key: string): Promise<void> {
   }
 }
 
+export async function aiDeleteKey(provider: string): Promise<void> {
+  try {
+    await invoke<void>("ai_delete_key", { provider });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 export async function aiGetConfig(): Promise<AiConfigResponse> {
   try {
     return await invoke<AiConfigResponse>("ai_get_config");

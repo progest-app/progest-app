@@ -105,6 +105,16 @@ pub async fn ai_set_key(provider: String, key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn ai_delete_key(provider: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let prov = parse_provider(&provider)?;
+        ai::delete_api_key(prov).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
 pub async fn ai_get_config(app: AppHandle) -> Result<AiConfigResponse, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();

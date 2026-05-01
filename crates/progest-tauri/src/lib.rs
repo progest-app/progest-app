@@ -91,6 +91,7 @@ pub fn run() {
             ai_commands::ai_suggest,
             ai_commands::ai_set_key,
             ai_commands::ai_get_config,
+            ai_commands::ai_delete_key,
         ])
         .setup(|app| {
             // We build the main window programmatically rather than via

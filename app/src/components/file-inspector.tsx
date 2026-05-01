@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import {
   IpcError,
+  aiDeleteKey,
   aiGetConfig,
   aiSetKey,
   aiSuggest,
@@ -430,6 +431,7 @@ function CustomFieldsBlock(props: { hit: RichSearchHit }) {
 
 const AI_TYPES = ["naming", "tags", "notes", "placement"] as const;
 type AiType = (typeof AI_TYPES)[number];
+const AI_PROVIDERS = ["anthropic", "openai"] as const;
 
 function AiSuggestionsSection(props: { hit: RichSearchHit }) {
   const { hit } = props;
@@ -441,6 +443,7 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
   const [activeType, setActiveType] = React.useState<AiType>("naming");
   const [includeNotes, setIncludeNotes] = React.useState(false);
   const [keyInput, setKeyInput] = React.useState("");
+  const [keyProvider, setKeyProvider] = React.useState<string>("anthropic");
   const [showKeyForm, setShowKeyForm] = React.useState(false);
   const [savingKey, setSavingKey] = React.useState(false);
 
@@ -448,7 +451,10 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
     let cancelled = false;
     aiGetConfig()
       .then((c) => {
-        if (!cancelled) setConfig(c);
+        if (!cancelled) {
+          setConfig(c);
+          setKeyProvider(c.provider);
+        }
       })
       .catch(() => {});
     return () => {
@@ -496,11 +502,25 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
     }
   };
 
+  const handleDeleteKey = async () => {
+    if (!config) return;
+    try {
+      await aiDeleteKey(config.provider);
+      const newConfig = await aiGetConfig();
+      setConfig(newConfig);
+      setShowKeyForm(false);
+      setSuggestions([]);
+      toast.success("API key removed");
+    } catch (e) {
+      toast.error(e instanceof IpcError ? e.raw : String(e));
+    }
+  };
+
   const handleSaveKey = async () => {
-    if (!keyInput.trim() || !config) return;
+    if (!keyInput.trim()) return;
     setSavingKey(true);
     try {
-      await aiSetKey(config.provider, keyInput.trim());
+      await aiSetKey(keyProvider, keyInput.trim());
       setKeyInput("");
       setShowKeyForm(false);
       const newConfig = await aiGetConfig();
@@ -521,9 +541,22 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
         <Label className="text-muted-foreground">AI suggestions</Label>
         {showKeyForm ? (
           <div className="grid gap-2">
+            <div className="flex gap-1.5">
+              {AI_PROVIDERS.map((p) => (
+                <Button
+                  key={p}
+                  size="xs"
+                  variant={keyProvider === p ? "default" : "outline"}
+                  onClick={() => setKeyProvider(p)}
+                  disabled={savingKey}
+                >
+                  {p}
+                </Button>
+              ))}
+            </div>
             <Input
               type="password"
-              placeholder={`${config.provider} API key`}
+              placeholder={`${keyProvider} API key`}
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               disabled={savingKey}
@@ -560,7 +593,72 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
 
   return (
     <section className="grid gap-1.5">
-      <Label className="text-muted-foreground">AI suggestions</Label>
+      <div className="flex items-center justify-between">
+        <Label className="text-muted-foreground">AI suggestions</Label>
+        <span className="text-[0.625rem] text-muted-foreground">
+          {config.provider}/{config.model.split("-").slice(0, 2).join("-")}
+          {" · "}
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            onClick={() => setShowKeyForm(true)}
+          >
+            change
+          </button>
+          {" · "}
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-destructive"
+            onClick={() => void handleDeleteKey()}
+          >
+            remove
+          </button>
+        </span>
+      </div>
+      {showKeyForm ? (
+        <div className="grid gap-2 rounded-md border bg-muted/30 p-2">
+          <div className="flex gap-1.5">
+            {AI_PROVIDERS.map((p) => (
+              <Button
+                key={p}
+                size="xs"
+                variant={keyProvider === p ? "default" : "outline"}
+                onClick={() => setKeyProvider(p)}
+                disabled={savingKey}
+              >
+                {p}
+              </Button>
+            ))}
+          </div>
+          <Input
+            type="password"
+            placeholder={`${keyProvider} API key`}
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            disabled={savingKey}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleSaveKey();
+            }}
+          />
+          <div className="flex gap-1">
+            <Button
+              size="xs"
+              onClick={() => void handleSaveKey()}
+              disabled={savingKey || !keyInput.trim()}
+            >
+              {savingKey ? "Saving…" : "Save"}
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => setShowKeyForm(false)}
+              disabled={savingKey}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-1">
         {AI_TYPES.map((t) => (
           <Button
