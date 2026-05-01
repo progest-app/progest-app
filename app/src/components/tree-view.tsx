@@ -26,6 +26,7 @@ import {
   fsCreateFile,
   fsRename,
   fileDeleteApply,
+  dirDeleteApply,
   IpcError,
   type DirEntry,
   type FileEntry,
@@ -323,7 +324,7 @@ function DirNode(
   const handleDelete = React.useCallback(async () => {
     if (!path) return;
     try {
-      await fileDeleteApply(path);
+      await dirDeleteApply(path);
       toast.success("Moved to Trash");
       bumpRefresh();
     } catch (e) {

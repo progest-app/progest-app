@@ -547,6 +547,14 @@ export async function fileDeleteApply(path: string): Promise<DeleteOutcome> {
   }
 }
 
+export async function dirDeleteApply(path: string): Promise<DeleteOutcome> {
+  try {
+    return await invoke<DeleteOutcome>("dir_delete_apply", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- CRUD (create / rename / move) ----------------------------------------
 
 export type CreateOutcome = { path: string; kind: string };

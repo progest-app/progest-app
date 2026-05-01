@@ -3,8 +3,10 @@
 use progest_core::create::{create_dir, create_file};
 use progest_core::fs::{FileSystem, ProjectPath};
 use progest_core::index::Index;
+use progest_core::meta::StdMetaStore;
 use progest_core::naming::FillMode;
 use progest_core::naming::types::{NameCandidate, Segment};
+use progest_core::reconcile::Reconciler;
 use progest_core::rename;
 use progest_core::rename::apply::Rename;
 use serde::Serialize;
@@ -51,6 +53,12 @@ pub async fn fs_create_file(path: String, app: AppHandle) -> Result<CreateOutcom
         let project_path =
             ProjectPath::new(&path).map_err(|e| format!("invalid path `{path}`: {e}"))?;
         let outcome = create_file(&ctx.fs, &project_path).map_err(|e| format!("{e}"))?;
+
+        // Run a quick reconcile so the new file gets a .meta sidecar
+        // and an index entry immediately.
+        let meta_store = StdMetaStore::new(ctx.fs.clone());
+        let reconciler = Reconciler::new(&ctx.fs, &meta_store, &ctx.index);
+        let _ = reconciler.full_scan();
 
         Ok(CreateOutcomeWire {
             path: outcome.path.as_str().to_owned(),

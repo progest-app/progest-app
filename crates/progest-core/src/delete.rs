@@ -68,6 +68,44 @@ pub struct DeletePreview {
     pub has_sidecar: bool,
 }
 
+/// Move a directory to the OS trash, removing index entries for any
+/// files that were inside it.
+pub fn apply_delete_dir(
+    index: &dyn Index,
+    project_root: &Path,
+    path: &ProjectPath,
+) -> Result<DeleteOutcome, DeleteError> {
+    let abs = project_root.join(path.as_str());
+    if !abs.is_dir() {
+        return Err(DeleteError::NotIndexed { path: path.clone() });
+    }
+
+    let prefix = format!("{}/", path.as_str());
+    let indexed_files = index
+        .list_files()
+        .map_err(|e| DeleteError::Index(e.to_string()))?;
+    let mut first_id = None;
+    for row in &indexed_files {
+        if row.path.as_str().starts_with(&prefix) {
+            if first_id.is_none() {
+                first_id = Some(row.file_id);
+            }
+            let _ = index.delete_file(&row.file_id);
+        }
+    }
+
+    trash::delete(&abs).map_err(|e| DeleteError::Trash {
+        path: path.as_str().to_owned(),
+        message: e.to_string(),
+    })?;
+
+    Ok(DeleteOutcome {
+        path: path.clone(),
+        file_id: first_id.unwrap_or_else(FileId::new_v7),
+        sidecar_trashed: false,
+    })
+}
+
 /// Move the file (and its `.meta` sidecar if present) to the OS trash,
 /// then remove the index entry.
 pub fn apply_delete(

@@ -93,6 +93,7 @@ pub fn run() {
             crud_commands::fs_move,
             delete_commands::file_delete_preview,
             delete_commands::file_delete_apply,
+            delete_commands::dir_delete_apply,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,
