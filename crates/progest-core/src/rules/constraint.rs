@@ -42,6 +42,15 @@ pub struct CompiledConstraint {
     pub required_suffix: String,
 }
 
+/// Windows reserved device names (case-insensitive, with or without
+/// extension). Files with these names cannot be created on NTFS and
+/// will break cross-platform projects. Checked unconditionally so
+/// macOS/Linux users also get warnings for Windows compatibility.
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+    "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
 /// Builtin compound extension tokens recognized by Progest v1 (§4.8).
 ///
 /// Users may extend this via `.progest/schema.toml [extension_compounds]`
@@ -61,6 +70,7 @@ pub enum ConstraintFailure {
     TooShort { length: u32, min: u32 },
     MissingPrefix { required: String },
     MissingSuffix { required: String },
+    WindowsReservedName { name: String },
 }
 
 impl fmt::Display for ConstraintFailure {
@@ -90,6 +100,9 @@ impl fmt::Display for ConstraintFailure {
             }
             Self::MissingPrefix { required } => write!(f, "required prefix `{required}` missing"),
             Self::MissingSuffix { required } => write!(f, "required suffix `{required}` missing"),
+            Self::WindowsReservedName { name } => {
+                write!(f, "`{name}` is a Windows reserved filename")
+            }
         }
     }
 }
@@ -268,6 +281,16 @@ pub fn evaluate_constraint(
         if c.reserved_words.iter().any(|w| w == &lower) {
             failures.push(ConstraintFailure::ReservedWord {
                 word: token.to_owned(),
+            });
+        }
+    }
+
+    // Windows reserved names (stem only, cross-platform lint)
+    {
+        let stem_upper = stem.to_ascii_uppercase();
+        if WINDOWS_RESERVED_NAMES.iter().any(|r| r == &stem_upper) {
+            failures.push(ConstraintFailure::WindowsReservedName {
+                name: stem.to_owned(),
             });
         }
     }
@@ -827,6 +850,41 @@ mod tests {
             f.iter()
                 .any(|v| matches!(v, ConstraintFailure::MissingSuffix { .. }))
         );
+    }
+
+    // --- Windows reserved names ---------------------------------------------
+
+    #[test]
+    fn windows_reserved_name_is_flagged() {
+        let c = compile_constraint(&default_raw()).unwrap();
+        for name in [
+            "CON.txt", "prn.log", "AUX.psd", "NUL.dat", "com1.tmp", "LPT3.out",
+        ] {
+            let f = evaluate_constraint(&c, name, &[]);
+            assert!(
+                f.iter()
+                    .any(|v| matches!(v, ConstraintFailure::WindowsReservedName { .. })),
+                "{name} should be flagged as Windows reserved"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_reserved_name_does_not_false_positive() {
+        let c = compile_constraint(&default_raw()).unwrap();
+        for name in [
+            "console.txt",
+            "auxiliary.psd",
+            "component.rs",
+            "null_value.json",
+        ] {
+            let f = evaluate_constraint(&c, name, &[]);
+            assert!(
+                f.iter()
+                    .all(|v| !matches!(v, ConstraintFailure::WindowsReservedName { .. })),
+                "{name} should NOT be flagged as Windows reserved"
+            );
+        }
     }
 
     // --- AND composition ---------------------------------------------------

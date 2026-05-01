@@ -118,6 +118,11 @@ impl Iterator for ScanIter {
                 continue;
             };
 
+            if file_type.is_file() && super::placeholder::is_cloud_placeholder(entry.path()) {
+                tracing::info!("skipping cloud placeholder: {}", entry.path().display());
+                continue;
+            }
+
             let kind = if file_type.is_symlink() {
                 EntryKind::Symlink
             } else if file_type.is_dir() {
