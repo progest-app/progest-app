@@ -2,7 +2,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { useBackgroundTasks } from "@/lib/background-task-context";
-import { lintRun, thumbnailGenerate } from "@/lib/ipc";
+import { lintRun, rescanProject, thumbnailGenerate } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
 import type { PaletteCommand } from "./types";
 
@@ -13,6 +13,28 @@ export function useMaintenanceCommands(): PaletteCommand[] {
   return React.useMemo<PaletteCommand[]>(() => {
     if (!project) return [];
     return [
+      {
+        id: "maintenance.rescan",
+        title: "Rescan project",
+        group: "Maintenance",
+        keywords: ["rescan", "scan", "reconcile", "refresh", "sync"],
+        run: async () => {
+          startTask("rescan", "Rescanning project");
+          try {
+            const result = await rescanProject((e) => {
+              updateTask("rescan", e.current, e.total, e.message);
+            });
+            toast.success(
+              `Rescan: ${result.added} added, ${result.updated} updated, ${result.removed} removed — lint: ${result.lint_naming + result.lint_placement + result.lint_sequence} violations — thumbnails: ${result.thumb_generated} generated`,
+            );
+            bumpRefresh();
+          } catch (e) {
+            toast.error(String(e));
+          } finally {
+            finishTask("rescan");
+          }
+        },
+      },
       {
         id: "maintenance.generate-thumbnails",
         title: "Generate thumbnails",

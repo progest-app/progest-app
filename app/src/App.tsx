@@ -32,13 +32,13 @@ import {
 } from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { BackgroundTaskProvider } from "@/lib/background-task-context";
+import { BackgroundTaskProvider, useBackgroundTasks } from "@/lib/background-task-context";
 import { FlatViewSummaryProvider } from "@/lib/flat-view-context";
 import { ProjectProvider, useProject } from "@/lib/project-context";
 import { SettingsProvider, useSettings } from "@/lib/settings-context";
 import { ThemeProvider } from "next-themes";
 import type { DirEntry, RichSearchHit } from "@/lib/ipc";
-import { historyUndo, historyRedo, IpcError } from "@/lib/ipc";
+import { historyUndo, historyRedo, rescanProject, IpcError } from "@/lib/ipc";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -99,6 +99,7 @@ export function App() {
 
 function Shell() {
   const { project, openPicker, bumpRefresh, openInitDialog } = useProject();
+  const { startTask, updateTask, finishTask } = useBackgroundTasks();
   const [selection, setSelection] = React.useState<Selection>(null);
   const [pendingConfirm, setPendingConfirm] = React.useState<{
     next: Selection;
@@ -245,6 +246,24 @@ function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [doUndo, doRedo]);
 
+  const doRescan = React.useCallback(async () => {
+    startTask("rescan", "Rescanning project");
+    try {
+      const result = await rescanProject((e) => {
+        updateTask("rescan", e.current, e.total, e.message);
+      });
+      toast.success(
+        `Rescan: ${result.added} added, ${result.updated} updated, ${result.removed} removed`,
+      );
+      bumpRefresh();
+    } catch (e) {
+      if (e instanceof IpcError && e.isNoProject) return;
+      toast.error(`Rescan failed: ${e instanceof IpcError ? e.raw : String(e)}`);
+    } finally {
+      finishTask("rescan");
+    }
+  }, [bumpRefresh, startTask, updateTask, finishTask]);
+
   useMenuEvents({
     "menu:new-project": () => openInitDialog("new"),
     "menu:open-project": () => void openPicker(),
@@ -258,7 +277,7 @@ function Shell() {
     "menu:toggle-flat": () => togglePanel("flat"),
     "menu:toggle-inspector": () => togglePanel("inspector"),
     "menu:palette": () => window.dispatchEvent(new CustomEvent("progest:toggle-palette")),
-    "menu:rescan": () => bumpRefresh(),
+    "menu:rescan": () => void doRescan(),
     "menu:import": () => void pickAndImport(),
     "menu:undo": () => void doUndo(),
     "menu:redo": () => void doRedo(),
@@ -314,7 +333,7 @@ function Shell() {
     onToggleFlat: () => togglePanel("flat"),
     onToggleInspector: () => togglePanel("inspector"),
     onPalette: () => window.dispatchEvent(new CustomEvent("progest:toggle-palette")),
-    onRescan: () => bumpRefresh(),
+    onRescan: () => void doRescan(),
   };
 
   return (
