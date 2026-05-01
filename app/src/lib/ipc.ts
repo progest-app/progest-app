@@ -314,7 +314,7 @@ export function isAlreadyInitialized(e: unknown): boolean {
 // with `#[serde(tag = "type", rename_all = "lowercase")]`.
 export type AcceptsToken = { type: "alias"; name: string } | { type: "ext"; value: string };
 
-export type AcceptsMode = "strict" | "warn" | "hint" | "off";
+export type AcceptsMode = "strict" | "warn" | "suggest" | "hint" | "off";
 
 export type RawAccepts = {
   inherit: boolean;

@@ -100,7 +100,8 @@ pub struct RawAccepts {
     /// unknown-alias errors with the original text.
     pub exts: Vec<AcceptsToken>,
     /// Severity mode for placement violations. Defaults to
-    /// [`Mode::Warn`] per REQUIREMENTS.md §3.13.1.
+    /// [`Mode::Suggest`] — no violation, but import / UI will still
+    /// suggest appropriate directories.
     pub mode: Mode,
 }
 
@@ -109,7 +110,7 @@ impl Default for RawAccepts {
         Self {
             inherit: false,
             exts: Vec::new(),
-            mode: Mode::Warn,
+            mode: Mode::Suggest,
         }
     }
 }
@@ -337,9 +338,9 @@ mod tests {
     }
 
     #[test]
-    fn default_raw_accepts_is_warn_mode_no_inherit_empty() {
+    fn default_raw_accepts_is_suggest_mode_no_inherit_empty() {
         let r = RawAccepts::default();
-        assert_eq!(r.mode, Mode::Warn);
+        assert_eq!(r.mode, Mode::Suggest);
         assert!(!r.inherit);
         assert!(r.exts.is_empty());
     }

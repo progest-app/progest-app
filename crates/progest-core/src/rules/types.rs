@@ -100,28 +100,30 @@ impl fmt::Display for RuleKind {
 /// User-configured mode determining lint / rename behavior (§8.2).
 ///
 /// `Mode::Warn` is the default when callers leave the field unset in
-/// `rules.toml`.
+/// `rules.toml`. For accepts placement, `Mode::Suggest` is used as the
+/// default — see `RawAccepts::default()`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Strict,
     #[default]
     Warn,
+    Suggest,
     Hint,
     Off,
 }
 
 impl Mode {
     /// The severity that should be attached to violations emitted under
-    /// this mode. `Off` produces no violations and is therefore modeled
-    /// as `None` — callers should short-circuit before reaching here.
+    /// this mode. `Off` and `Suggest` produce no violations and are
+    /// therefore modeled as `None` — callers should short-circuit.
     #[must_use]
     pub fn violation_severity(self) -> Option<Severity> {
         match self {
             Self::Strict => Some(Severity::Strict),
             Self::Warn => Some(Severity::Warn),
             Self::Hint => Some(Severity::Hint),
-            Self::Off => None,
+            Self::Suggest | Self::Off => None,
         }
     }
 }

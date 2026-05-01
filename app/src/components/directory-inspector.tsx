@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-const MODES: AcceptsMode[] = ["strict", "warn", "hint", "off"];
+const MODES: AcceptsMode[] = ["strict", "warn", "suggest", "hint", "off"];
 
 export function DirectoryInspector(props: { dir: string }) {
   const { project, bumpRefresh } = useProject();
@@ -121,7 +121,7 @@ export function DirectoryInspector(props: { dir: string }) {
   }
 
   function onDeclareEmpty() {
-    setDraft({ inherit: false, exts: [], mode: "warn" });
+    setDraft({ inherit: false, exts: [], mode: "suggest" });
   }
 
   function onClearAccepts() {

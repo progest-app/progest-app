@@ -55,6 +55,7 @@ fn mode_str(mode: Mode) -> &'static str {
     match mode {
         Mode::Strict => "strict",
         Mode::Warn => "warn",
+        Mode::Suggest => "suggest",
         Mode::Hint => "hint",
         Mode::Off => "off",
     }
@@ -89,12 +90,12 @@ mod tests {
     }
 
     #[test]
-    fn defaults_round_trip_with_warn_mode() {
+    fn defaults_round_trip_with_suggest_mode() {
         let original = RawAccepts::default();
         let mut extra = Table::new();
         inject_accepts(&mut extra, &original);
         let parsed = extract_accepts(&extra).unwrap().unwrap();
-        assert_eq!(parsed.accepts.mode, Mode::Warn);
+        assert_eq!(parsed.accepts.mode, Mode::Suggest);
         assert!(!parsed.accepts.inherit);
         assert!(parsed.accepts.exts.is_empty());
     }

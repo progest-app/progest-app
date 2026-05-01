@@ -35,8 +35,7 @@ pub struct EffectiveAccepts {
     /// dir itself and via inheritance, `Own` wins.
     pub exts: BTreeMap<Ext, AcceptsSource>,
     /// Severity for placement lint (from the dir's own `[accepts]`,
-    /// or [`Mode::Warn`] if the dir has no declaration — matching
-    /// REQUIREMENTS.md §3.13.6 default).
+    /// or [`Mode::Suggest`] if the dir has no declaration).
     pub mode: Mode,
 }
 
