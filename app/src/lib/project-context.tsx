@@ -17,6 +17,7 @@ import {
 
 type ProjectContextValue = {
   project: ProjectInfo | null;
+  platform: string;
   recent: RecentProject[];
   error: string | null;
   /** Re-probe the backend for the currently attached project. */
@@ -80,6 +81,7 @@ const Ctx = React.createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [project, setProject] = React.useState<ProjectInfo | null>(null);
+  const [platform, setPlatform] = React.useState("macos");
   const [recent, setRecent] = React.useState<RecentProject[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [refreshTick, setRefreshTick] = React.useState(0);
@@ -91,6 +93,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     try {
       const info = await appInfo();
       setProject(info.project);
+      setPlatform(info.platform);
       setError(null);
     } catch (e) {
       setProject(null);
@@ -116,6 +119,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       try {
         const info = await projectOpen(path);
         setProject(info.project);
+        setPlatform(info.platform);
         setError(null);
         await refreshRecent();
       } catch (e) {
@@ -212,6 +216,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const value = React.useMemo<ProjectContextValue>(
     () => ({
       project,
+      platform,
       recent,
       error,
       refresh,
@@ -231,6 +236,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       project,
+      platform,
       recent,
       error,
       refresh,

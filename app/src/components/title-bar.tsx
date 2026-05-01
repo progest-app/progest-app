@@ -29,7 +29,10 @@ export function TitleBar(props: {
   panels: PanelVisibility;
   onTogglePanel: (key: PanelKey) => void;
 }) {
-  const { project, openPicker } = useProject();
+  const { project, platform, openPicker } = useProject();
+  const isMac = platform === "macos";
+  const modKey = isMac ? "⌘" : "Ctrl+";
+  const titlebarPadding = isMac ? "pl-[80px]" : "pl-2";
   const { panels, onTogglePanel } = props;
 
   const visibleKeys = React.useMemo(
@@ -68,10 +71,7 @@ export function TitleBar(props: {
         // column is `auto` (sized by the search button); the side
         // columns are equal-width via `1fr` so the search stays put.
         "grid-cols-[1fr_auto_1fr]",
-        // Reserve room for macOS traffic lights. Other platforms get a
-        // benign extra 80 px gutter — fine for v1.0 (macOS-first); a
-        // platform-aware variant lands when Windows ships in v1.1.
-        "pl-[80px]",
+        titlebarPadding,
       )}
     >
       {/* Left cluster — project chip + separator + panel toggles.
@@ -151,12 +151,12 @@ export function TitleBar(props: {
         size="sm"
         onClick={() => window.dispatchEvent(new CustomEvent("progest:toggle-palette"))}
         className="h-7 w-64 justify-start gap-2 text-muted-foreground"
-        title="Open command palette (⌘K)"
+        title={`Open command palette (${modKey}K)`}
       >
         <Search className="size-3.5" />
         <span className="flex-1 text-left text-xs">Search…</span>
         <kbd className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
-          ⌘K
+          {modKey}K
         </kbd>
       </Button>
 
