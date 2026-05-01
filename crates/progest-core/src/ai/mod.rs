@@ -1,5 +1,8 @@
+pub mod audit;
+pub mod context;
 pub mod keychain;
 pub mod loader;
+pub mod prompt;
 pub mod provider;
 pub mod types;
 

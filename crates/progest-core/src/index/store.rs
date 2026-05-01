@@ -92,6 +92,11 @@ pub trait Index: Send + Sync {
     /// `file_id` (silently skips unknown ids). Used by
     /// [`crate::search::execute::project_hits`].
     fn rich_rows(&self, file_ids: &[FileId]) -> Result<Vec<RichRow>, IndexError>;
+
+    /// All distinct tag names used across the project, sorted
+    /// lexicographically. Used by AI tag suggestions to provide the
+    /// project's existing vocabulary as context.
+    fn list_all_tags(&self) -> Result<Vec<String>, IndexError>;
 }
 
 /// Search-projection columns written by reconcile after `upsert_file`.
@@ -534,6 +539,18 @@ impl Index for SqliteIndex {
                     violations: counts,
                     custom_fields,
                 });
+            }
+            Ok(out)
+        })
+    }
+
+    fn list_all_tags(&self) -> Result<Vec<String>, IndexError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare("SELECT DISTINCT tag FROM tags ORDER BY tag")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
             }
             Ok(out)
         })
