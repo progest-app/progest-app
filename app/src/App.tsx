@@ -159,6 +159,10 @@ function Shell() {
     setSelection(null);
   }, []);
 
+  const onSelectionUpdate = React.useCallback((updatedHit: RichSearchHit) => {
+    setSelection({ kind: "file", hit: updatedHit });
+  }, []);
+
   const selectedDir = selection?.kind === "dir" ? selection.path : "";
 
   // --- import via drag & drop -----------------------------------------------
@@ -198,6 +202,7 @@ function Shell() {
             panels={panels}
             treeRef={treeRef}
             onFileDeleted={onFileDeleted}
+            onSelectionUpdate={onSelectionUpdate}
             inspectorRef={inspectorRef}
           />
         ) : (
@@ -241,6 +246,7 @@ function MainShell(props: {
   panels: PanelVisibility;
   treeRef: React.RefObject<HTMLElement | null>;
   onFileDeleted: () => void;
+  onSelectionUpdate: (hit: RichSearchHit) => void;
   inspectorRef: React.RefObject<FileInspectorHandle | null>;
 }) {
   const flatRef = React.useRef<HTMLElement>(null);
@@ -289,6 +295,7 @@ function MainShell(props: {
             <InspectorPane
               selection={props.selection}
               onFileDeleted={props.onFileDeleted}
+              onSelectionUpdate={props.onSelectionUpdate}
               inspectorRef={props.inspectorRef}
             />
           </aside>
@@ -319,6 +326,7 @@ function MainShell(props: {
 function InspectorPane(props: {
   selection: Selection;
   onFileDeleted?: (() => void) | undefined;
+  onSelectionUpdate?: (hit: RichSearchHit) => void;
   inspectorRef: React.RefObject<FileInspectorHandle | null>;
 }) {
   if (props.selection?.kind === "file") {
@@ -327,6 +335,7 @@ function InspectorPane(props: {
         ref={props.inspectorRef}
         hit={props.selection.hit}
         onDeleted={props.onFileDeleted}
+        onSelectionUpdate={props.onSelectionUpdate}
       />
     );
   }

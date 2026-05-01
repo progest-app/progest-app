@@ -58,35 +58,77 @@ export type FileInspectorHandle = {
 
 export const FileInspector = React.forwardRef<
   FileInspectorHandle,
-  { hit: RichSearchHit; onDeleted?: (() => void) | undefined }
+  {
+    hit: RichSearchHit;
+    onDeleted?: (() => void) | undefined;
+    onSelectionUpdate?: ((hit: RichSearchHit) => void) | undefined;
+  }
 >(function FileInspector(props, ref) {
-  const { hit, onDeleted } = props;
-  const isIndexed = hit.file_id.length > 0;
+  const { hit, onDeleted, onSelectionUpdate } = props;
+  const [localHit, setLocalHit] = React.useState(hit);
+  React.useEffect(() => {
+    setLocalHit(hit);
+  }, [hit]);
+
+  const isIndexed = localHit.file_id.length > 0;
   const pendingRef = React.useRef(false);
+  const [notesVersion, setNotesVersion] = React.useState(0);
 
   React.useImperativeHandle(ref, () => ({
     hasPendingSuggestions: () => pendingRef.current,
   }));
 
+  const onTagApplied = React.useCallback((tag: string) => {
+    setLocalHit((prev) => ({
+      ...prev,
+      tags: [...prev.tags, tag].toSorted((a, b) => a.localeCompare(b)),
+    }));
+  }, []);
+
+  const onRenamed = React.useCallback(
+    (result: { old_path: string; new_path: string }) => {
+      const newHit: RichSearchHit = {
+        ...localHit,
+        path: result.new_path,
+        name: result.new_path.split("/").pop() ?? null,
+      };
+      setLocalHit(newHit);
+      onSelectionUpdate?.(newHit);
+    },
+    [localHit, onSelectionUpdate],
+  );
+
+  const onNotesApplied = React.useCallback(() => {
+    setNotesVersion((n) => n + 1);
+  }, []);
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr] overflow-hidden">
       <header className="border-b px-3 py-2">
         <div className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">File</div>
-        <div className="break-all font-mono text-xs/relaxed">{hit.path}</div>
+        <div className="break-all font-mono text-xs/relaxed">{localHit.path}</div>
       </header>
       <div className="grid auto-rows-min gap-3 overflow-y-auto px-3 py-3 text-xs">
-        <FileSummary hit={hit} />
-        <TagsEditor hit={hit} disabled={!isIndexed} />
-        <NotesEditor hit={hit} disabled={!isIndexed} />
-        <CustomFieldsBlock hit={hit} />
-        {isIndexed ? <AiSuggestionsSection hit={hit} pendingRef={pendingRef} /> : null}
+        <FileSummary hit={localHit} />
+        <TagsEditor hit={localHit} disabled={!isIndexed} />
+        <NotesEditor hit={localHit} disabled={!isIndexed} reloadKey={notesVersion} />
+        <CustomFieldsBlock hit={localHit} />
+        {isIndexed ? (
+          <AiSuggestionsSection
+            hit={localHit}
+            pendingRef={pendingRef}
+            onTagApplied={onTagApplied}
+            onRenamed={onRenamed}
+            onNotesApplied={onNotesApplied}
+          />
+        ) : null}
         {!isIndexed ? (
           <div className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-warning">
             This file isn&apos;t indexed yet — run <code>progest scan</code> (or wait for the next
             reconcile) before editing tags or notes.
           </div>
         ) : null}
-        {isIndexed ? <DeleteSection path={hit.path} onDeleted={onDeleted} /> : null}
+        {isIndexed ? <DeleteSection path={localHit.path} onDeleted={onDeleted} /> : null}
       </div>
     </div>
   );
@@ -340,7 +382,7 @@ function TagsEditor(props: { hit: RichSearchHit; disabled: boolean }) {
   );
 }
 
-function NotesEditor(props: { hit: RichSearchHit; disabled: boolean }) {
+function NotesEditor(props: { hit: RichSearchHit; disabled: boolean; reloadKey?: number }) {
   const { hit, disabled } = props;
   const { bumpRefresh } = useProject();
   const [body, setBody] = React.useState("");
@@ -375,7 +417,7 @@ function NotesEditor(props: { hit: RichSearchHit; disabled: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [hit.path]);
+  }, [hit.path, props.reloadKey]);
 
   // Debounced save: cheap to keep the textarea responsive without
   // hammering the sidecar atomic-write path on every keystroke.
@@ -447,6 +489,9 @@ type AiType = (typeof AI_TYPES)[number];
 function AiSuggestionsSection(props: {
   hit: RichSearchHit;
   pendingRef: React.MutableRefObject<boolean>;
+  onTagApplied?: (tag: string) => void;
+  onRenamed?: (result: { old_path: string; new_path: string }) => void;
+  onNotesApplied?: () => void;
 }) {
   const { hit, pendingRef } = props;
   const { bumpRefresh } = useProject();
@@ -487,6 +532,7 @@ function AiSuggestionsSection(props: {
     try {
       await tagAdd(hit.file_id, tag);
       setSuggestions((prev) => prev.filter((s) => s.value !== tag));
+      props.onTagApplied?.(tag);
       bumpRefresh();
       toast.success(`Tag "${tag}" added`);
     } catch (e) {
@@ -498,6 +544,7 @@ function AiSuggestionsSection(props: {
     try {
       const result = await aiApplyRename(hit.path, newName);
       setSuggestions([]);
+      props.onRenamed?.(result);
       bumpRefresh();
       toast.success(`Renamed to ${result.new_path.split("/").pop()}`);
     } catch (e) {
@@ -509,6 +556,7 @@ function AiSuggestionsSection(props: {
     try {
       await notesWrite(hit.path, notes);
       setSuggestions([]);
+      props.onNotesApplied?.();
       bumpRefresh();
       toast.success("Notes updated");
     } catch (e) {
