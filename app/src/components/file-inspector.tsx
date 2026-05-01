@@ -11,6 +11,7 @@ import {
   notesRead,
   notesWrite,
   tagAdd,
+  tagListAll,
   tagRemove,
   type AiConfigResponse,
   type AiSuggestionWire,
@@ -462,6 +463,25 @@ function TagsSection(props: {
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const pendingAdd = React.useRef<string | null>(null);
+  const [allTags, setAllTags] = React.useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = React.useState(false);
+  const [selectedIdx, setSelectedIdx] = React.useState(-1);
+
+  React.useEffect(() => {
+    tagListAll()
+      .then(setAllTags)
+      .catch(() => {});
+  }, [hit.file_id]);
+
+  const suggestions = React.useMemo(() => {
+    if (draft.trim().length === 0) return [];
+    const lower = draft.toLowerCase();
+    return allTags.filter((t) => t.toLowerCase().includes(lower) && !tags.includes(t)).slice(0, 8);
+  }, [draft, allTags, tags]);
+
+  React.useEffect(() => {
+    setSelectedIdx(-1);
+  }, [suggestions]);
 
   React.useEffect(() => {
     setTags(hit.tags);
@@ -470,14 +490,15 @@ function TagsSection(props: {
     pendingAdd.current = null;
   }, [hit.file_id, hit.path, hit.tags]);
 
-  const submitDraft = async () => {
-    const tag = draft.trim();
+  const submitTag = async (value: string) => {
+    const tag = value.trim();
     if (tag.length === 0 || tags.includes(tag) || pendingAdd.current === tag || disabled) {
       if (tag.length === 0 || tags.includes(tag)) setDraft("");
       return;
     }
     pendingAdd.current = tag;
     setDraft("");
+    setShowSuggestions(false);
     setBusy(true);
     setError(null);
     try {
@@ -488,6 +509,7 @@ function TagsSection(props: {
         next.sort((a, b) => a.localeCompare(b));
         return next;
       });
+      if (!allTags.includes(tag)) setAllTags((prev) => [...prev, tag].sort());
       bumpRefresh();
     } catch (e) {
       setError(e instanceof IpcError ? e.raw : String(e));
@@ -496,6 +518,8 @@ function TagsSection(props: {
       setBusy(false);
     }
   };
+
+  const submitDraft = () => submitTag(draft);
 
   const removeTag = async (tag: string) => {
     if (disabled) return;
@@ -513,9 +537,24 @@ function TagsSection(props: {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+    if (e.key === "ArrowDown" && suggestions.length > 0) {
       e.preventDefault();
-      void submitDraft();
+      setSelectedIdx((i) => (i + 1) % suggestions.length);
+      setShowSuggestions(true);
+    } else if (e.key === "ArrowUp" && suggestions.length > 0) {
+      e.preventDefault();
+      setSelectedIdx((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+      setShowSuggestions(true);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (selectedIdx >= 0 && selectedIdx < suggestions.length) {
+        void submitTag(suggestions[selectedIdx]!);
+      } else {
+        void submitDraft();
+      }
+    } else if (e.key === "Escape" && showSuggestions) {
+      e.preventDefault();
+      setShowSuggestions(false);
     } else if (e.key === "Backspace" && draft.length === 0 && tags.length > 0) {
       e.preventDefault();
       void removeTag(tags[tags.length - 1]!);
@@ -555,15 +594,45 @@ function TagsSection(props: {
             </button>
           </span>
         ))}
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={() => void submitDraft()}
-          disabled={disabled || busy}
-          placeholder={tags.length === 0 ? "add tag…" : ""}
-          className="h-6 min-w-24 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
-        />
+        <div className="relative min-w-24 flex-1">
+          <Input
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setShowSuggestions(true);
+            }}
+            onKeyDown={onKeyDown}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => {
+              setTimeout(() => setShowSuggestions(false), 150);
+              void submitDraft();
+            }}
+            disabled={disabled || busy}
+            placeholder={tags.length === 0 ? "add tag…" : ""}
+            className="h-6 w-full border-0 bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
+          />
+          {showSuggestions && suggestions.length > 0 ? (
+            <ul className="absolute left-0 top-full z-50 mt-1 max-h-40 w-48 overflow-auto rounded-md border bg-popover py-1 shadow-md">
+              {suggestions.map((s, i) => (
+                <li key={s}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full px-2 py-1 text-left font-mono text-xs hover:bg-accent",
+                      i === selectedIdx && "bg-accent",
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      void submitTag(s);
+                    }}
+                  >
+                    #{s}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <Button
           type="button"
           variant="ghost"
