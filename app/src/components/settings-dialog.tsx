@@ -10,6 +10,7 @@ import {
   aiSetKey,
   type AiConfigResponse,
 } from "@/lib/ipc";
+import { useSettings } from "@/lib/settings-context";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 
@@ -70,6 +71,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "ai" }: Settin
 }
 
 function AiSettingsTab() {
+  const { bumpAiConfig } = useSettings();
   const [config, setConfig] = React.useState<AiConfigResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [provider, setProvider] = React.useState<string>("anthropic");
@@ -107,6 +109,7 @@ function AiSettingsTab() {
       await aiSetConfig({ provider });
       setKeyInput("");
       await loadConfig();
+      bumpAiConfig();
       toast.success(`API key saved for ${PROVIDER_LABELS[provider] ?? provider}`);
     } catch (e) {
       setError(e instanceof IpcError ? e.raw : String(e));
@@ -122,6 +125,7 @@ function AiSettingsTab() {
     try {
       await aiDeleteKey(config.provider);
       await loadConfig();
+      bumpAiConfig();
       toast.success("API key removed");
     } catch (e) {
       setError(e instanceof IpcError ? e.raw : String(e));
@@ -138,6 +142,7 @@ function AiSettingsTab() {
       if (model) opts.model = model;
       await aiSetConfig(opts);
       await loadConfig();
+      bumpAiConfig();
       toast.success("AI settings saved");
     } catch (e) {
       setError(e instanceof IpcError ? e.raw : String(e));
@@ -252,7 +257,7 @@ function AiSettingsTab() {
           checked={auditLog}
           onCheckedChange={(checked) => {
             setAuditLog(checked);
-            void aiSetConfig({ audit_log: checked });
+            void aiSetConfig({ audit_log: checked }).then(() => bumpAiConfig());
           }}
           disabled={saving}
         />

@@ -7,7 +7,6 @@ import { RefreshCw, Settings } from "lucide-react";
 import {
   IpcError,
   aiApplyRename,
-  aiGetConfig,
   aiSuggest,
   fileDeleteApply,
   fileDeletePreview,
@@ -15,7 +14,6 @@ import {
   notesWrite,
   tagAdd,
   tagRemove,
-  type AiConfigResponse,
   type AiSuggestionWire,
   type DeletePreview,
   type RichSearchHit,
@@ -452,8 +450,7 @@ function AiSuggestionsSection(props: {
 }) {
   const { hit, pendingRef } = props;
   const { bumpRefresh } = useProject();
-  const { openSettings } = useSettings();
-  const [config, setConfig] = React.useState<AiConfigResponse | null>(null);
+  const { openSettings, aiConfig: config } = useSettings();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [suggestions, setSuggestions] = React.useState<AiSuggestionWire[]>([]);
@@ -463,18 +460,6 @@ function AiSuggestionsSection(props: {
   React.useEffect(() => {
     pendingRef.current = suggestions.length > 0;
   }, [suggestions, pendingRef]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    aiGetConfig()
-      .then((c) => {
-        if (!cancelled) setConfig(c);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   React.useEffect(() => {
     setSuggestions([]);
