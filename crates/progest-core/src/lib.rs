@@ -10,6 +10,7 @@
 //! and [`watch`] modules.
 
 pub mod accepts;
+pub mod ai;
 pub mod delete;
 pub mod fs;
 pub mod history;
