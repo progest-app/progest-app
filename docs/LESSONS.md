@@ -621,3 +621,20 @@
 - Unix の `which` コマンドは Windows に存在しない
 - `which` crate（v7）は Windows / Unix 両対応で PATH 探索する
 - adjacent binary check では `ffmpeg.exe` も探索対象に追加
+
+## 20. AI 統合（core::ai + フロントエンド）
+
+### AI config は SettingsContext で一括キャッシュする
+- FileInspector で `aiGetConfig()` を毎マウント IPC していると、ファイル選択のたびに遅延が発生する
+- 解決: SettingsContext に `aiConfig` state + `aiConfigVersion` counter を持たせ、プロジェクト切替 or Settings 保存時のみ re-fetch
+- コンポーネントは `useSettings().aiConfig` を直接参照（IPC ゼロ）
+
+### Apply 後のインスペクタ反映には localHit パターンを使う
+- `bumpRefresh()` は FlatView/TreeView 用で、FileInspector 自身の `hit` prop は更新されない
+- FileInspector 内に `localHit` state を持ち、apply 後にローカル更新（tag → tags 配列追加、rename → path/name 差替、notes → reloadKey bump）
+- rename は Shell の selection も更新する必要がある → `onSelectionUpdate` callback で伝搬
+
+### per-section AI ボタンは useAiSuggestion hook で分離する
+- 一つの AiSuggestionsSection に全 type を詰め込むと activeType 管理が複雑化し UX も不明瞭
+- type ごとに独立した hook インスタンスを生成し、各セクションヘッダに Sparkles ボタンを配置
+- pendingRef は全 hook の suggestions を合計して FileInspector レベルで算出
