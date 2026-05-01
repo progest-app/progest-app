@@ -50,6 +50,7 @@ const VIEWS_TOML_PATH: &str = ".progest/views.toml";
 #[derive(Debug, Clone, Serialize)]
 pub struct AppInfo {
     pub project: Option<ProjectInfo>,
+    pub platform: String,
 }
 
 /// Response shape for `search_execute`.
@@ -133,6 +134,7 @@ pub fn project_open(path: String, state: State<'_, AppState>) -> Result<AppInfo,
     *guard = Some(ctx);
     Ok(AppInfo {
         project: Some(info),
+        platform: std::env::consts::OS.to_owned(),
     })
 }
 
@@ -155,6 +157,7 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
     let guard = state.project.lock().expect("project mutex poisoned");
     AppInfo {
         project: guard.as_ref().map(ProjectInfo::from_context),
+        platform: std::env::consts::OS.to_owned(),
     }
 }
 

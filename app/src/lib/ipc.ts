@@ -25,6 +25,7 @@ export type ProjectInfo = {
 
 export type AppInfo = {
   project: ProjectInfo | null;
+  platform: string;
 };
 
 export type RichViolationCounts = {
