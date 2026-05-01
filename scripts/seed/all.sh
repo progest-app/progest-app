@@ -8,7 +8,7 @@ SEED_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "${SEED_DIR}/_lib.sh"
 
-PATTERNS=(minimal shots-pipeline naming-violations placement-violations sequences)
+PATTERNS=(minimal shots-pipeline naming-violations placement-violations sequences game-project cg-project large-mixed)
 
 ROOT_OUT="${1:-${REPO_ROOT}/tmp/seed}"
 step "Seeding into ${ROOT_OUT}"
