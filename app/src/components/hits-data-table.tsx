@@ -30,8 +30,12 @@ import { ViolationBadges } from "@/components/violation-badges";
 import type { RichSearchHit } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 
+function basename(hit: RichSearchHit): string {
+  return hit.name ?? hit.path.split("/").pop() ?? hit.path;
+}
+
 /** Column ids exposed for sort persistence. Keep stable. */
-export type HitsColumnId = "path" | "tags" | "violations" | "kind" | "ext";
+export type HitsColumnId = "path" | "filename" | "tags" | "violations" | "kind" | "ext";
 
 /**
  * TanStack-table-backed list view for `RichSearchHit`s.
@@ -55,15 +59,22 @@ export function HitsDataTable(props: {
   const columns = React.useMemo<ColumnDef<RichSearchHit>[]>(
     () => [
       {
-        id: "path",
-        accessorKey: "path",
-        header: ({ column }) => <SortHeader column={column}>Path</SortHeader>,
+        id: "filename",
+        accessorFn: basename,
+        header: ({ column }) => <SortHeader column={column}>Filename</SortHeader>,
         cell: ({ row }) => (
           <div className="flex items-center gap-2 truncate">
             <FileIcon className="size-3.5 shrink-0 opacity-60" />
-            <span className="truncate font-mono">{row.original.path}</span>
+            <span className="truncate font-mono">{basename(row.original)}</span>
           </div>
         ),
+        sortingFn: (a, b) => basename(a.original).localeCompare(basename(b.original)),
+      },
+      {
+        id: "path",
+        accessorKey: "path",
+        header: ({ column }) => <SortHeader column={column}>Path</SortHeader>,
+        cell: ({ row }) => <span className="truncate font-mono">{row.original.path}</span>,
         sortingFn: (a, b) => a.original.path.localeCompare(b.original.path),
       },
       {
@@ -190,15 +201,13 @@ export function ColumnVisibilityMenu(props: {
 }) {
   const labels: Record<HitsColumnId, string> = {
     path: "Path",
+    filename: "Filename",
     tags: "Tags",
     violations: "Violations",
     kind: "Kind",
     ext: "Extension",
   };
-  const ids: HitsColumnId[] = ["path", "tags", "violations", "kind", "ext"];
-  // `path` always stays visible — there's nothing useful to show
-  // without it. Keep it in the menu but disabled so the user
-  // understands the column exists.
+  const ids: HitsColumnId[] = ["filename", "path", "tags", "violations", "kind", "ext"];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -213,7 +222,7 @@ export function ColumnVisibilityMenu(props: {
             <DropdownMenuCheckboxItem
               key={id}
               checked={visible}
-              disabled={id === "path"}
+              disabled={id === "filename"}
               onCheckedChange={(next) => {
                 props.onColumnVisibilityChange({
                   ...props.columnVisibility,
