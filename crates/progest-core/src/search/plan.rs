@@ -119,7 +119,7 @@ impl SqlBuilder {
                 self.push_text(glob);
                 "f.name GLOB ?".into()
             }
-            ReservedClause::Path(glob) => {
+            ReservedClause::Path(glob) | ReservedClause::Under(glob) => {
                 self.push_text(glob);
                 "f.path GLOB ?".into()
             }

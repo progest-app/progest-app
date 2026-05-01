@@ -1,0 +1,9 @@
+name = "10.9 under: directory filter"
+query = 'under:assets/shots'
+
+[expected]
+sql_contains = [
+  "f.path GLOB ?",
+]
+text_params = ["assets/shots/**"]
+warning_count = 0
