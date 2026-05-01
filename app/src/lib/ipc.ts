@@ -621,6 +621,18 @@ export async function aiDeleteKey(provider: string): Promise<void> {
   }
 }
 
+export async function aiSetConfig(opts: {
+  provider?: string;
+  model?: string;
+  audit_log?: boolean;
+}): Promise<void> {
+  try {
+    await invoke<void>("ai_set_config", opts);
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 export async function aiGetConfig(): Promise<AiConfigResponse> {
   try {
     return await invoke<AiConfigResponse>("ai_get_config");

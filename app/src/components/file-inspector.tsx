@@ -6,6 +6,7 @@ import {
   IpcError,
   aiDeleteKey,
   aiGetConfig,
+  aiSetConfig,
   aiSetKey,
   aiSuggest,
   fileDeleteApply,
@@ -521,11 +522,12 @@ function AiSuggestionsSection(props: { hit: RichSearchHit }) {
     setSavingKey(true);
     try {
       await aiSetKey(keyProvider, keyInput.trim());
+      await aiSetConfig({ provider: keyProvider });
       setKeyInput("");
       setShowKeyForm(false);
       const newConfig = await aiGetConfig();
       setConfig(newConfig);
-      toast.success("API key saved");
+      toast.success(`API key saved for ${keyProvider}`);
     } catch (e) {
       toast.error(e instanceof IpcError ? e.raw : String(e));
     } finally {

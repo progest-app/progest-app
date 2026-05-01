@@ -136,6 +136,53 @@ pub async fn ai_get_config(app: AppHandle) -> Result<AiConfigResponse, String> {
     .map_err(|e| format!("join: {e}"))?
 }
 
+#[tauri::command]
+pub async fn ai_set_config(
+    provider: Option<String>,
+    model: Option<String>,
+    audit_log: Option<bool>,
+    app: AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+        let toml_path = ctx.root.project_toml();
+        let text = std::fs::read_to_string(&toml_path)
+            .map_err(|e| format!("reading {}: {e}", toml_path.display()))?;
+        let mut doc: toml::Table = text
+            .parse()
+            .map_err(|e| format!("parsing project.toml: {e}"))?;
+
+        let ai = doc
+            .entry("ai")
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+            .as_table_mut()
+            .ok_or("project.toml [ai] is not a table")?;
+
+        if let Some(p) = &provider {
+            parse_provider(p)?;
+            ai.insert("provider".into(), toml::Value::String(p.clone()));
+        }
+        if let Some(m) = &model {
+            ai.insert("model".into(), toml::Value::String(m.clone()));
+        }
+        if let Some(a) = audit_log {
+            ai.insert("audit_log".into(), toml::Value::Boolean(a));
+        }
+
+        let new_text =
+            toml::to_string_pretty(&doc).map_err(|e| format!("serializing project.toml: {e}"))?;
+        std::fs::write(&toml_path, new_text)
+            .map_err(|e| format!("writing {}: {e}", toml_path.display()))?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 fn parse_suggestion_type(s: &str) -> Result<SuggestionType, String> {
