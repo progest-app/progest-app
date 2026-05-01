@@ -167,9 +167,12 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     /*
      * Default to native-app selection behavior: chrome and labels
      * aren't selectable, but anything that looks like content
