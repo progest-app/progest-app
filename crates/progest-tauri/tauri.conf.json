@@ -17,6 +17,7 @@
     }
   },
   "bundle": {
+    "resources": ["resources/*"],
     "active": false,
     "targets": "all",
     "category": "DeveloperTool",

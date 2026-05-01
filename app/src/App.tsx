@@ -4,6 +4,7 @@ import { FolderOpen, FolderPlus, Sparkles } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { DirectoryInspector } from "@/components/directory-inspector";
 import { DragDropProvider, DropOverlay, useDropZone } from "@/components/drag-drop-overlay";
+import { isDragOutActive } from "@/lib/use-drag-out";
 import { dirPathAtPoint } from "@/components/tree-view";
 import { FileInspector, type FileInspectorHandle } from "@/components/file-inspector";
 import { FlatView } from "@/components/flat-view";
@@ -188,7 +189,7 @@ function Shell() {
 
   const handleDrop = React.useCallback(
     (paths: string[], position: { x: number; y: number }) => {
-      if (!project || paths.length === 0) return;
+      if (!project || paths.length === 0 || isDragOutActive()) return;
 
       // Check if the drop landed on a TreeView folder button by
       // inspecting the DOM at the drop point.
