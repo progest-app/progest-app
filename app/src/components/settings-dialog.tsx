@@ -280,10 +280,36 @@ const DEBOUNCE_MAX = 1500;
 const DEBOUNCE_STEP = 50;
 
 function GeneralTab() {
+  const isMac = navigator.platform.includes("Mac");
   return (
     <div className="grid gap-4">
       <ThemeSettings />
       <SearchDebounceSettings />
+      {isMac ? <MenubarToggle /> : null}
+    </div>
+  );
+}
+
+function MenubarToggle() {
+  const [enabled, setEnabled] = React.useState(
+    () => localStorage.getItem("progest:show-menubar") === "true",
+  );
+  return (
+    <div className="flex items-center justify-between">
+      <div className="grid gap-0.5">
+        <Label htmlFor="show-menubar">Show menubar</Label>
+        <span className="text-[0.625rem] text-muted-foreground">
+          Display a shadcn menubar below the title bar (reload required)
+        </span>
+      </div>
+      <Switch
+        id="show-menubar"
+        checked={enabled}
+        onCheckedChange={(checked) => {
+          setEnabled(checked);
+          localStorage.setItem("progest:show-menubar", checked ? "true" : "false");
+        }}
+      />
     </div>
   );
 }

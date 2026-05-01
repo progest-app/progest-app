@@ -9,6 +9,7 @@
     "core:window:allow-toggle-maximize",
     "dialog:default",
     "drag:default",
-    "core:event:default"
+    "core:event:default",
+    "core:menu:default"
   ]
 }
