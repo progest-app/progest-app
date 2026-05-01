@@ -9,7 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { SortingState, VisibilityState } from "@tanstack/react-table";
+import type { ColumnSizingState, SortingState, VisibilityState } from "@tanstack/react-table";
 
 import {
   IpcError,
@@ -55,6 +55,7 @@ import {
 
 const DEBOUNCE_MS = 200;
 const COLUMN_VISIBILITY_KEY = "progest:flatview-columns";
+const COLUMN_SIZING_KEY = "progest:flatview-column-sizing";
 const SORTING_KEY = "progest:flatview-sorting";
 
 const DEFAULT_COLUMN_VISIBILITY: VisibilityState = {
@@ -87,6 +88,16 @@ function loadSorting(): SortingState {
   }
 }
 
+function loadColumnSizing(): ColumnSizingState {
+  try {
+    const raw = localStorage.getItem(COLUMN_SIZING_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as ColumnSizingState;
+  } catch {
+    return {};
+  }
+}
+
 export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const { project, refreshTick, flatViewSubmission } = useProject();
   const reportSummary = useReportFlatView();
@@ -106,12 +117,18 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() =>
     loadColumnVisibility(),
   );
+  const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>(() =>
+    loadColumnSizing(),
+  );
   React.useEffect(() => {
     localStorage.setItem(SORTING_KEY, JSON.stringify(sorting));
   }, [sorting]);
   React.useEffect(() => {
     localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(columnVisibility));
   }, [columnVisibility]);
+  React.useEffect(() => {
+    localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify(columnSizing));
+  }, [columnSizing]);
 
   // Apply the sort to the hit list once. Both render paths (DataTable
   // and grid) consume `sortedHits`; the DataTable still receives
@@ -382,6 +399,8 @@ export function FlatView(props: { onPickHit?: (hit: RichSearchHit) => void }) {
               onSortingChange={setSorting}
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}
+              columnSizing={columnSizing}
+              onColumnSizingChange={setColumnSizing}
             />
           ) : (
             <HitGrid hits={sortedHits} onPick={props.onPickHit} thumbUrls={thumbUrls} />

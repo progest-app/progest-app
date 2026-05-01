@@ -5,6 +5,7 @@ import {
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type ColumnSizingState,
   type SortingState,
   type VisibilityState,
 } from "@tanstack/react-table";
@@ -55,6 +56,8 @@ export function HitsDataTable(props: {
   onSortingChange: (next: SortingState) => void;
   columnVisibility: VisibilityState;
   onColumnVisibilityChange: (next: VisibilityState) => void;
+  columnSizing: ColumnSizingState;
+  onColumnSizingChange: (next: ColumnSizingState) => void;
 }) {
   const columns = React.useMemo<ColumnDef<RichSearchHit>[]>(
     () => [
@@ -69,6 +72,8 @@ export function HitsDataTable(props: {
           </div>
         ),
         sortingFn: (a, b) => basename(a.original).localeCompare(basename(b.original)),
+        size: 240,
+        minSize: 100,
       },
       {
         id: "path",
@@ -76,11 +81,11 @@ export function HitsDataTable(props: {
         header: ({ column }) => <SortHeader column={column}>Path</SortHeader>,
         cell: ({ row }) => <span className="truncate font-mono">{row.original.path}</span>,
         sortingFn: (a, b) => a.original.path.localeCompare(b.original.path),
+        size: 300,
+        minSize: 100,
       },
       {
         id: "tags",
-        // Sort by joined-tag string so users get a deterministic A-Z
-        // grouping when the tag column is the active sort.
         accessorFn: (h) => h.tags.join(" "),
         header: ({ column }) => <SortHeader column={column}>Tags</SortHeader>,
         cell: ({ row }) =>
@@ -92,10 +97,11 @@ export function HitsDataTable(props: {
             <span className="text-muted-foreground">—</span>
           ),
         sortingFn: (a, b) => a.original.tags.join(" ").localeCompare(b.original.tags.join(" ")),
+        size: 160,
+        minSize: 60,
       },
       {
         id: "violations",
-        // Sort by total violation count (naming + placement + sequence).
         accessorFn: (h) => h.violations.naming + h.violations.placement + h.violations.sequence,
         header: ({ column }) => <SortHeader column={column}>Violations</SortHeader>,
         cell: ({ row }) => {
@@ -105,12 +111,16 @@ export function HitsDataTable(props: {
           }
           return <ViolationBadges counts={v} className="" />;
         },
+        size: 120,
+        minSize: 60,
       },
       {
         id: "kind",
         accessorKey: "kind",
         header: ({ column }) => <SortHeader column={column}>Kind</SortHeader>,
         cell: ({ row }) => <span className="text-muted-foreground">{row.original.kind}</span>,
+        size: 80,
+        minSize: 50,
       },
       {
         id: "ext",
@@ -120,6 +130,8 @@ export function HitsDataTable(props: {
           <span className="font-mono text-muted-foreground">{row.original.ext ?? ""}</span>
         ),
         sortingFn: (a, b) => (a.original.ext ?? "").localeCompare(b.original.ext ?? ""),
+        size: 70,
+        minSize: 40,
       },
     ],
     [],
@@ -131,7 +143,10 @@ export function HitsDataTable(props: {
     state: {
       sorting: props.sorting,
       columnVisibility: props.columnVisibility,
+      columnSizing: props.columnSizing,
     },
+    columnResizeMode: "onChange",
+    enableColumnResizing: true,
     onSortingChange: (updater) => {
       const next = typeof updater === "function" ? updater(props.sorting) : updater;
       props.onSortingChange(next);
@@ -140,20 +155,40 @@ export function HitsDataTable(props: {
       const next = typeof updater === "function" ? updater(props.columnVisibility) : updater;
       props.onColumnVisibilityChange(next);
     },
+    onColumnSizingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(props.columnSizing) : updater;
+      props.onColumnSizingChange(next);
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
 
   return (
-    <Table>
+    <Table style={{ width: table.getTotalSize(), tableLayout: "fixed" }}>
       <TableHeader>
         {table.getHeaderGroups().map((headerGroup) => (
           <TableRow key={headerGroup.id}>
             {headerGroup.headers.map((header) => (
-              <TableHead key={header.id} className="text-[0.625rem] uppercase tracking-wide">
+              <TableHead
+                key={header.id}
+                className="relative text-[0.625rem] uppercase tracking-wide"
+                style={{ width: header.getSize() }}
+              >
                 {header.isPlaceholder
                   ? null
                   : flexRender(header.column.columnDef.header, header.getContext())}
+                {header.column.getCanResize() ? (
+                  <div
+                    onMouseDown={header.getResizeHandler()}
+                    onTouchStart={header.getResizeHandler()}
+                    className={cn(
+                      "absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none",
+                      header.column.getIsResizing()
+                        ? "bg-primary"
+                        : "bg-transparent hover:bg-border",
+                    )}
+                  />
+                ) : null}
               </TableHead>
             ))}
           </TableRow>
@@ -177,7 +212,11 @@ export function HitsDataTable(props: {
             >
               <TableRow className="cursor-pointer" onClick={() => props.onPick?.(row.original)}>
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id} className="text-xs">
+                  <TableCell
+                    key={cell.id}
+                    className="overflow-hidden text-xs"
+                    style={{ width: cell.column.getSize() }}
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </TableCell>
                 ))}
