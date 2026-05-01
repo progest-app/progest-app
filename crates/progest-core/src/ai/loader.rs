@@ -172,10 +172,10 @@ provider = "gemini"
     #[test]
     fn wrong_type_is_error() {
         let t = table(
-            r#"
+            r"
 [ai]
 provider = 42
-"#,
+",
         );
         let err = extract_ai_config(&t).unwrap_err();
         assert!(matches!(err, AiConfigError::WrongType { key, .. } if key == "provider"));
@@ -197,10 +197,10 @@ model = "custom-model"
     #[test]
     fn glossary_wrong_element_type() {
         let t = table(
-            r#"
+            r"
 [ai]
 glossary = [1, 2, 3]
-"#,
+",
         );
         let err = extract_ai_config(&t).unwrap_err();
         assert!(matches!(err, AiConfigError::WrongType { key, .. } if key == "glossary"));
