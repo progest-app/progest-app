@@ -88,6 +88,10 @@ export function TreeView(props: {
   );
 
   const dragState = useDragActive();
+  const dragOverPath = React.useMemo(() => {
+    if (!dragState.active || !dragState.position) return null;
+    return dirPathAtPoint(dragState.position);
+  }, [dragState.active, dragState.position]);
 
   return (
     <nav className="h-full overflow-auto p-1 text-xs">
@@ -101,8 +105,7 @@ export function TreeView(props: {
         onPickFile={props.onPickFile}
         selectedDir={props.selectedDir}
         onSelectDir={props.onSelectDir}
-        dragActive={dragState.active}
-        dragPosition={dragState.position}
+        dragOverPath={dragOverPath}
       />
     </nav>
   );
@@ -118,8 +121,7 @@ function DirNode(props: {
   onPickFile: ((entry: DirEntry) => void) | undefined;
   selectedDir: string | undefined;
   onSelectDir: ((path: string) => void) | undefined;
-  dragActive: boolean;
-  dragPosition: { x: number; y: number } | null;
+  dragOverPath: string | null;
 }) {
   const {
     path,
@@ -131,33 +133,18 @@ function DirNode(props: {
     onPickFile,
     selectedDir,
     onSelectDir,
-    dragActive,
-    dragPosition,
+    dragOverPath,
   } = props;
   const isOpen = expanded.has(path);
   const isSelected = selectedDir === path;
   const entry = cache[path];
   const indent = depth * 12;
 
-  const btnRef = React.useRef<HTMLButtonElement>(null);
-  const isDragOver =
-    dragActive &&
-    dragPosition != null &&
-    btnRef.current != null &&
-    (() => {
-      const rect = btnRef.current!.getBoundingClientRect();
-      return (
-        dragPosition.x >= rect.left &&
-        dragPosition.x <= rect.right &&
-        dragPosition.y >= rect.top &&
-        dragPosition.y <= rect.bottom
-      );
-    })();
+  const isDragOver = dragOverPath === path;
 
   return (
     <div>
       <button
-        ref={btnRef}
         type="button"
         data-dir-path={path}
         className={cn(
@@ -213,8 +200,7 @@ function DirNode(props: {
                   onPickFile={onPickFile}
                   selectedDir={selectedDir}
                   onSelectDir={onSelectDir}
-                  dragActive={dragActive}
-                  dragPosition={dragPosition}
+                  dragOverPath={dragOverPath}
                 />
               ) : (
                 <FileNode key={child.path} entry={child} depth={depth + 1} onPick={onPickFile} />
