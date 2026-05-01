@@ -81,6 +81,46 @@ pub trait FileSystem: Send + Sync {
     fn create_dir_all(&self, path: &ProjectPath) -> Result<(), FsError>;
 }
 
+/// Retry an I/O operation when the OS reports a sharing violation.
+///
+/// On Windows, DCC apps like Photoshop and Maya hold file locks during
+/// saves, producing `ERROR_SHARING_VIOLATION` (raw OS error 32). A
+/// short exponential backoff (100→200→400→800→1600 ms ≈ 3 s total)
+/// avoids failing the whole operation for a transient lock.
+///
+/// On non-Windows platforms the closure runs exactly once.
+fn retry_sharing_violation<F, T>(f: F) -> io::Result<T>
+where
+    F: Fn() -> io::Result<T>,
+{
+    #[cfg(not(windows))]
+    {
+        f()
+    }
+
+    #[cfg(windows)]
+    {
+        let mut attempts: u32 = 0;
+        loop {
+            match f() {
+                Ok(v) => return Ok(v),
+                Err(e) if attempts < 5 && e.raw_os_error() == Some(32) => {
+                    attempts += 1;
+                    tracing::warn!(
+                        attempts,
+                        "sharing violation, retrying in {}ms",
+                        100 * 2u64.pow(attempts - 1)
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        100 * 2u64.pow(attempts - 1),
+                    ));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+}
+
 /// Filesystem implementation backed by [`std::fs`], scoped to a project root.
 #[derive(Debug, Clone)]
 pub struct StdFileSystem {
@@ -107,7 +147,8 @@ impl FileSystem for StdFileSystem {
     }
 
     fn read(&self, path: &ProjectPath) -> Result<Vec<u8>, FsError> {
-        fs::read(self.resolve(path)).map_err(|e| FsError::from_io(path, e))
+        let resolved = self.resolve(path);
+        retry_sharing_violation(|| fs::read(&resolved)).map_err(|e| FsError::from_io(path, e))
     }
 
     fn write_atomic(&self, path: &ProjectPath, bytes: &[u8]) -> Result<(), FsError> {
@@ -150,7 +191,7 @@ impl FileSystem for StdFileSystem {
             let _ = fs::remove_file(&target);
         }
 
-        match fs::rename(&tmp_path, &target) {
+        match retry_sharing_violation(|| fs::rename(&tmp_path, &target)) {
             Ok(()) => Ok(()),
             Err(e) => {
                 let _ = fs::remove_file(&tmp_path);
@@ -160,12 +201,14 @@ impl FileSystem for StdFileSystem {
     }
 
     fn rename(&self, from: &ProjectPath, to: &ProjectPath) -> Result<(), FsError> {
+        let from_abs = self.resolve(from);
         let to_abs = self.resolve(to);
         #[cfg(windows)]
         if to_abs.exists() {
             let _ = fs::remove_file(&to_abs);
         }
-        fs::rename(self.resolve(from), to_abs).map_err(|e| FsError::from_io(from, e))
+        retry_sharing_violation(|| fs::rename(&from_abs, &to_abs))
+            .map_err(|e| FsError::from_io(from, e))
     }
 
     fn exists(&self, path: &ProjectPath) -> bool {
@@ -186,7 +229,9 @@ impl FileSystem for StdFileSystem {
     }
 
     fn remove_file(&self, path: &ProjectPath) -> Result<(), FsError> {
-        fs::remove_file(self.resolve(path)).map_err(|e| FsError::from_io(path, e))
+        let resolved = self.resolve(path);
+        retry_sharing_violation(|| fs::remove_file(&resolved))
+            .map_err(|e| FsError::from_io(path, e))
     }
 
     fn create_dir_all(&self, path: &ProjectPath) -> Result<(), FsError> {
