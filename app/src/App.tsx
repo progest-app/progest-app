@@ -1,5 +1,5 @@
 import * as React from "react";
-import { FolderOpen, FolderPlus, Sparkles } from "lucide-react";
+import { FolderOpen, FolderPlus, FolderTree, Layers, Sparkles } from "lucide-react";
 
 import { AppMenubar } from "@/components/app-menubar";
 import { CommandPalette } from "@/components/command-palette";
@@ -13,6 +13,7 @@ import { ImportModal } from "@/components/import-modal";
 import { InitProjectDialog } from "@/components/init-project-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { StatusBar } from "@/components/status-bar";
+import { SequenceView } from "@/components/sequence-view";
 import { TreeView } from "@/components/tree-view";
 import {
   ALL_PANELS_VISIBLE,
@@ -38,6 +39,7 @@ import { SettingsProvider, useSettings } from "@/lib/settings-context";
 import { ThemeProvider } from "next-themes";
 import type { DirEntry, RichSearchHit } from "@/lib/ipc";
 import { Toaster } from "@/components/ui/sonner";
+import { cn } from "@/lib/utils";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useMenuEvents } from "@/lib/use-menu-events";
 
@@ -322,13 +324,13 @@ function MainShell(props: {
       key: "tree",
       node: (
         <ResizablePanel id="tree" key="tree" defaultSize={22} minSize={12}>
-          <aside ref={props.treeRef} className="h-full overflow-hidden">
-            <TreeView
-              onPickFile={props.onPickTreeFile}
-              selectedDir={props.selectedDir}
-              onSelectDir={props.onSelectDir}
-            />
-          </aside>
+          <SidePanel
+            treeRef={props.treeRef}
+            onPickTreeFile={props.onPickTreeFile}
+            selectedDir={props.selectedDir}
+            onSelectDir={props.onSelectDir}
+            onPickHit={props.onPickHit}
+          />
         </ResizablePanel>
       ),
     });
@@ -456,6 +458,57 @@ function Welcome() {
       ) : null}
       {error ? <div className="text-xs text-destructive">{error}</div> : null}
     </div>
+  );
+}
+
+function SidePanel(props: {
+  treeRef: React.RefObject<HTMLElement | null>;
+  onPickTreeFile: (entry: DirEntry) => void;
+  selectedDir: string;
+  onSelectDir: (path: string) => void;
+  onPickHit: (hit: RichSearchHit) => void;
+}) {
+  const [tab, setTab] = React.useState<"tree" | "sequences">("tree");
+  return (
+    <aside ref={props.treeRef} className="grid h-full grid-rows-[auto_1fr] overflow-hidden">
+      <div className="flex border-b">
+        <button
+          type="button"
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1 px-2 py-1 text-[0.625rem] uppercase tracking-wide",
+            tab === "tree"
+              ? "border-b-2 border-primary font-medium"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setTab("tree")}
+        >
+          <FolderTree className="size-3" />
+          Tree
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1 px-2 py-1 text-[0.625rem] uppercase tracking-wide",
+            tab === "sequences"
+              ? "border-b-2 border-primary font-medium"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => setTab("sequences")}
+        >
+          <Layers className="size-3" />
+          Sequences
+        </button>
+      </div>
+      {tab === "tree" ? (
+        <TreeView
+          onPickFile={props.onPickTreeFile}
+          selectedDir={props.selectedDir}
+          onSelectDir={props.onSelectDir}
+        />
+      ) : (
+        <SequenceView onPickHit={props.onPickHit} />
+      )}
+    </aside>
   );
 }
 
