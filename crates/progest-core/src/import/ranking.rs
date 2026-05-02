@@ -10,11 +10,14 @@
 //! - Inherited match (any source):           **1**
 //! - Shallower path breaks ties (fewer `/`).
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 use crate::accepts::resolve::EffectiveAccepts;
 use crate::accepts::types::Ext;
 use crate::fs::ProjectPath;
+use crate::index::FileRow;
 use crate::rules::AcceptsSource;
 
 /// A suggested destination directory with its score.
@@ -65,6 +68,92 @@ pub fn rank_destinations(
     });
 
     scored
+}
+
+/// Rank directories by how many files with the given extension they
+/// already contain. Directories with no matching files are excluded.
+///
+/// Returns sorted by count (desc) then depth (asc) then lexicographic.
+pub fn rank_by_frequency(rows: &[FileRow], ext: &Ext) -> Vec<SuggestedDestination> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let normalized = ext.as_str().to_lowercase();
+    for row in rows {
+        let file_ext = row.path.extension().unwrap_or_default().to_lowercase();
+        if file_ext == normalized {
+            let dir = row.path.as_str().rsplit_once('/').map_or("", |(d, _)| d);
+            *counts.entry(dir.to_string()).or_default() += 1;
+        }
+    }
+
+    let mut scored: Vec<SuggestedDestination> = counts
+        .into_iter()
+        .filter_map(|(dir, count)| {
+            let path = if dir.is_empty() {
+                ProjectPath::root()
+            } else {
+                ProjectPath::new(&dir).ok()?
+            };
+            Some(SuggestedDestination {
+                path,
+                score: u32::try_from(count).unwrap_or(u32::MAX),
+            })
+        })
+        .collect();
+
+    scored.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| depth(&a.path).cmp(&depth(&b.path)))
+            .then_with(|| a.path.as_str().cmp(b.path.as_str()))
+    });
+
+    scored
+}
+
+/// Merge accepts-based ranking with frequency-based ranking.
+///
+/// Accepts matches (score 1–3) always rank above frequency-only
+/// matches. Within accepts matches, frequency count is used as a
+/// secondary signal. Frequency-only dirs get score 0 and sort by count.
+pub fn merge_rankings(
+    accepts: &[SuggestedDestination],
+    frequency: &[SuggestedDestination],
+) -> Vec<SuggestedDestination> {
+    let freq_map: HashMap<&str, u32> = frequency
+        .iter()
+        .map(|s| (s.path.as_str(), s.score))
+        .collect();
+
+    let mut merged: Vec<(u32, u32, ProjectPath)> = accepts
+        .iter()
+        .map(|s| {
+            let freq = freq_map.get(s.path.as_str()).copied().unwrap_or(0);
+            (s.score, freq, s.path.clone())
+        })
+        .collect();
+
+    let accepts_set: std::collections::HashSet<&str> =
+        accepts.iter().map(|s| s.path.as_str()).collect();
+    for f in frequency {
+        if !accepts_set.contains(f.path.as_str()) {
+            merged.push((0, f.score, f.path.clone()));
+        }
+    }
+
+    merged.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| b.1.cmp(&a.1))
+            .then_with(|| depth(&a.2).cmp(&depth(&b.2)))
+            .then_with(|| a.2.as_str().cmp(b.2.as_str()))
+    });
+
+    merged
+        .into_iter()
+        .map(|(accepts_score, _freq, path)| SuggestedDestination {
+            path,
+            score: accepts_score,
+        })
+        .collect()
 }
 
 fn depth(p: &ProjectPath) -> usize {
