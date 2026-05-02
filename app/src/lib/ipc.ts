@@ -717,6 +717,33 @@ export async function historySetConfig(config: { retention: number }): Promise<v
   }
 }
 
+// --- rescan ----------------------------------------------------------------
+
+export type RescanResponse = {
+  added: number;
+  updated: number;
+  removed: number;
+  unchanged: number;
+  orphan_metas: number;
+  lint_naming: number;
+  lint_placement: number;
+  lint_sequence: number;
+  thumb_generated: number;
+  thumb_cached: number;
+};
+
+export async function rescanProject(
+  onProgress?: (e: ProgressEvent) => void,
+): Promise<RescanResponse> {
+  try {
+    return await invoke<RescanResponse>("rescan_project", {
+      onProgress: makeChannel(onProgress),
+    });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- AI suggestions -------------------------------------------------------
 
 export type AiSuggestionWire = {

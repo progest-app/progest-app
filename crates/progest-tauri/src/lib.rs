@@ -17,6 +17,7 @@ mod menu;
 mod progress;
 mod project_init_commands;
 mod recent;
+mod rescan_commands;
 mod state;
 mod template_commands;
 mod thumbnail_commands;
@@ -109,6 +110,7 @@ pub fn run() {
             history_commands::history_redo,
             history_commands::history_get_config,
             history_commands::history_set_config,
+            rescan_commands::rescan_project,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,
