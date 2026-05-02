@@ -13,6 +13,7 @@ mod file_inspector_commands;
 mod history_commands;
 mod import_commands;
 mod lint_commands;
+mod media_commands;
 mod menu;
 mod progress;
 mod project_init_commands;
@@ -111,6 +112,7 @@ pub fn run() {
             history_commands::history_get_config,
             history_commands::history_set_config,
             rescan_commands::rescan_project,
+            media_commands::file_media_info,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,
             ai_commands::ai_set_key,

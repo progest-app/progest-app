@@ -8,6 +8,7 @@ import {
   aiSuggest,
   fileDeleteApply,
   fileDeletePreview,
+  fileMediaInfo,
   notesRead,
   notesWrite,
   tagAdd,
@@ -16,6 +17,7 @@ import {
   type AiConfigResponse,
   type AiSuggestionWire,
   type DeletePreview,
+  type MediaInfo,
   type RichSearchHit,
 } from "@/lib/ipc";
 import { useProject } from "@/lib/project-context";
@@ -322,6 +324,7 @@ export const FileInspector = React.forwardRef<
           }
         />
         <StaticFields hit={localHit} />
+        <MediaInfoSection path={localHit.path} />
         <TagsSection
           hit={localHit}
           disabled={!isIndexed}
@@ -444,6 +447,61 @@ function Row(props: { label: string; value: string; mono?: boolean; className?: 
       </span>
     </div>
   );
+}
+
+// ── Media info section ─────────────────────────────────────────────
+
+function MediaInfoSection(props: { path: string }) {
+  const [info, setInfo] = React.useState<MediaInfo | null>(null);
+
+  React.useEffect(() => {
+    setInfo(null);
+    void fileMediaInfo(props.path)
+      .then(setInfo)
+      .catch(() => {});
+  }, [props.path]);
+
+  if (!info || info.size_bytes === 0) return null;
+
+  return (
+    <div className="grid gap-1.5">
+      <Row label="Size" value={formatBytes(info.size_bytes)} />
+      {info.width != null && info.height != null ? (
+        <Row label="Resolution" value={`${info.width} × ${info.height}`} />
+      ) : null}
+      {info.bit_depth != null ? <Row label="Bit depth" value={`${info.bit_depth}-bit`} /> : null}
+      {info.codec != null ? <Row label="Codec" value={info.codec} /> : null}
+      {info.fps != null ? <Row label="FPS" value={`${Math.round(info.fps * 100) / 100}`} /> : null}
+      {info.duration_secs != null ? (
+        <Row label="Duration" value={formatDuration(info.duration_secs)} />
+      ) : null}
+      {info.audio_codec != null ? <Row label="Audio" value={info.audio_codec} /> : null}
+      {info.sample_rate != null ? (
+        <Row label="Sample rate" value={`${info.sample_rate} Hz`} />
+      ) : null}
+      {info.channels != null ? (
+        <Row
+          label="Channels"
+          value={info.channels === 1 ? "Mono" : info.channels === 2 ? "Stereo" : `${info.channels}`}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = Math.floor(secs % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // ── Tags section ───────────────────────────────────────────────────
