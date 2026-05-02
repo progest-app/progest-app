@@ -717,6 +717,28 @@ export async function historySetConfig(config: { retention: number }): Promise<v
   }
 }
 
+// --- meta hidden -----------------------------------------------------------
+
+export type MetaHiddenConfig = {
+  hidden: boolean;
+};
+
+export async function metaGetHidden(): Promise<MetaHiddenConfig> {
+  try {
+    return await invoke<MetaHiddenConfig>("meta_get_hidden");
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
+export async function metaSetHidden(value: boolean): Promise<void> {
+  try {
+    await invoke<void>("meta_set_hidden", { value });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- rescan ----------------------------------------------------------------
 
 export type RescanResponse = {

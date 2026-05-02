@@ -110,6 +110,8 @@ pub fn run() {
             history_commands::history_redo,
             history_commands::history_get_config,
             history_commands::history_set_config,
+            history_commands::meta_get_hidden,
+            history_commands::meta_set_hidden,
             rescan_commands::rescan_project,
             ai_commands::ai_suggest,
             ai_commands::ai_apply_rename,

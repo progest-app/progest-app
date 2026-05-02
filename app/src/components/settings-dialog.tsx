@@ -6,6 +6,8 @@ import {
   IpcError,
   aiDeleteKey,
   aiGetConfig,
+  metaGetHidden,
+  metaSetHidden,
   aiSetConfig,
   aiSetKey,
   historyGetConfig,
@@ -288,7 +290,45 @@ function GeneralTab() {
       <ThemeSettings />
       <SearchDebounceSettings />
       <HistoryRetentionSettings />
+      <MetaHiddenToggle />
       {isMac ? <MenubarToggle /> : null}
+    </div>
+  );
+}
+
+function MetaHiddenToggle() {
+  const [hidden, setHidden] = React.useState(true);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    void metaGetHidden()
+      .then((c) => {
+        setHidden(c.hidden);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  if (!loaded) return null;
+
+  return (
+    <div className="flex items-center justify-between">
+      <div className="grid gap-0.5">
+        <Label htmlFor="meta-hidden">Hide .meta files</Label>
+        <span className="text-[0.625rem] text-muted-foreground">
+          Set OS hidden attribute on sidecar files so they don&apos;t appear in Finder / Explorer
+        </span>
+      </div>
+      <Switch
+        id="meta-hidden"
+        checked={hidden}
+        onCheckedChange={(checked) => {
+          setHidden(checked);
+          void metaSetHidden(checked).catch((e) => {
+            toast.error(`Failed: ${e instanceof IpcError ? e.raw : String(e)}`);
+          });
+        }}
+      />
     </div>
   );
 }
