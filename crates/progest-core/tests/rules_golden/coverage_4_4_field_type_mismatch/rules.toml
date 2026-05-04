@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[rules]]
+id = "scene-template"
+kind = "template"
+applies_to = "./**"
+template = "sc{field:scene:03d}_{desc:slug}.{ext}"

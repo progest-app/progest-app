@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[rules]]
+id = "braces-template"
+kind = "template"
+applies_to = "./**"
+template = "{{project}}_{desc:snake}.{ext}"

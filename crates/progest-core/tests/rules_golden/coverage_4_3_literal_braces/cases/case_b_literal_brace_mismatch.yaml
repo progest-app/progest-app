@@ -1,0 +1,8 @@
+name: "§4.3 — filename without literal { does not match"
+path: "assets/project_forest_night.psd"
+expected:
+  violations:
+    - rule_id: "braces-template"
+      kind: "template"
+      severity: "warn"
+      reason_contains: "does not satisfy template"

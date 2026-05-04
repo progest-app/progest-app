@@ -1,0 +1,13 @@
+schema_version = 1
+
+[[rules]]
+id = "alpha-template"
+kind = "template"
+applies_to = "./**"
+template = "{desc:snake}.{ext}"
+
+[[rules]]
+id = "beta-template"
+kind = "template"
+applies_to = "./**"
+template = "{prefix}_{desc:snake}.{ext}"

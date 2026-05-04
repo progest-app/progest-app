@@ -1,0 +1,7 @@
+name: "§4.8 — project-registered compound ext psd.bak is peeled correctly"
+path: "assets/forest_night.psd.bak"
+compound_exts:
+  - "psd.bak"
+expected:
+  winner_rule_id: "compound-template"
+  violations: []

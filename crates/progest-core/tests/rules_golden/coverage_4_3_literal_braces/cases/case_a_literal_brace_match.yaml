@@ -1,0 +1,5 @@
+name: "§4.3 — literal brace {{ in template matches literal { in filename"
+path: "assets/{project}_forest_night.psd"
+expected:
+  winner_rule_id: "braces-template"
+  violations: []

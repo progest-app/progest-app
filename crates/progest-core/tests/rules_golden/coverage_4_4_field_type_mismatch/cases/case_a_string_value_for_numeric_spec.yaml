@@ -1,0 +1,10 @@
+name: "§4.4 — string value on numeric :03d spec is evaluation_error"
+path: "assets/sc020_forest-night.tif"
+custom:
+  scene: "twenty"
+expected:
+  violations:
+    - rule_id: "scene-template"
+      kind: "template"
+      severity: "evaluation_error"
+      reason_contains: "expected integer"

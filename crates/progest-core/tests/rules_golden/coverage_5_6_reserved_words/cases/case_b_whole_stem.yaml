@@ -1,0 +1,8 @@
+name: "§5.6 — whole stem equals reserved word"
+path: "assets/test.psd"
+expected:
+  violations:
+    - rule_id: "reserved-words"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "test"

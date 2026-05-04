@@ -1,0 +1,8 @@
+name: "§5.6 — reserved word as middle token triggers violation"
+path: "assets/scene_tmp_export.psd"
+expected:
+  violations:
+    - rule_id: "reserved-words"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "tmp"
