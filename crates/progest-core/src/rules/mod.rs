@@ -25,7 +25,7 @@ pub use constraint::{
     BUILTIN_COMPOUND_EXTS, CompiledConstraint, ConstraintCompileError, ConstraintFailure,
     compile_constraint, evaluate_constraint, split_basename,
 };
-pub use eval::{EvaluationOutcome, evaluate};
+pub use eval::{EvaluationOptions, EvaluationOutcome, evaluate, evaluate_with_options};
 pub use inheritance::{
     CompiledRule, CompiledRuleBody, CompiledRuleSet, InheritanceError, RuleProvenance,
     RuleSetLayer, compile_ruleset,

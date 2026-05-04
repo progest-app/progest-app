@@ -1,0 +1,18 @@
+name: "Case A — winner + shadowed + not_applicable in one trace"
+path: "assets/shots/ch010/ch010_001_bg_v03.psd"
+expected:
+  winner_rule_id: "shot-template"
+  violations: []
+  trace:
+    - rule_id: "shot-template"
+      kind: "template"
+      decision: "winner"
+      source: "project_wide"
+    - rule_id: "general-template"
+      kind: "template"
+      decision: "shadowed"
+      source: "project_wide"
+    - rule_id: "ascii-constraint"
+      kind: "constraint"
+      decision: "not_applicable"
+      source: "project_wide"

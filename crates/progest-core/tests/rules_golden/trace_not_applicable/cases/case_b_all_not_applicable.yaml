@@ -1,0 +1,14 @@
+name: "Case B — file matches no rules, all are not_applicable"
+path: "misc/todo.txt"
+expected:
+  violations: []
+  trace:
+    - rule_id: "shot-template"
+      kind: "template"
+      decision: "not_applicable"
+    - rule_id: "general-template"
+      kind: "template"
+      decision: "not_applicable"
+    - rule_id: "ascii-constraint"
+      kind: "constraint"
+      decision: "not_applicable"

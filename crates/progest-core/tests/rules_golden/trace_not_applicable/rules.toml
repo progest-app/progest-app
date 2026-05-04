@@ -1,0 +1,19 @@
+schema_version = 1
+
+[[rules]]
+id = "shot-template"
+kind = "template"
+applies_to = "./assets/shots/**/*.psd"
+template = "{prefix}_{seq:03d}_{desc:snake}_v{version:02d}.{ext}"
+
+[[rules]]
+id = "general-template"
+kind = "template"
+applies_to = "./assets/**"
+template = "{desc:snake}_v{version:02d}.{ext}"
+
+[[rules]]
+id = "ascii-constraint"
+kind = "constraint"
+applies_to = "./docs/**"
+charset = "ascii"
