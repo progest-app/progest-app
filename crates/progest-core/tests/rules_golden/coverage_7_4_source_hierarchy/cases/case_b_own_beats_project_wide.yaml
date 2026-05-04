@@ -1,0 +1,15 @@
+name: "§7.4 — own-dir layer wins over project-wide at same specificity"
+path: "assets/shots/forest_night.psd"
+dirmeta_layers:
+  - base_dir: "assets/shots"
+    rules_toml: |
+      schema_version = 1
+      [[rules]]
+      id = "own-template"
+      kind = "template"
+      applies_to = "./**"
+      template = "{prefix}_{desc:snake}.{ext}"
+expected:
+  # own-template (Own source) beats alpha-template and beta-template
+  # (ProjectWide) even though specificity of ./** ties with ./**
+  winner_rule_id: "own-template"

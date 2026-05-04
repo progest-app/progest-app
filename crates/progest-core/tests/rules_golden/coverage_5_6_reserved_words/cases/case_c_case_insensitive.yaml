@@ -1,0 +1,8 @@
+name: "§5.6 — case-insensitive match on reserved word"
+path: "assets/scene_TMP_export.psd"
+expected:
+  violations:
+    - rule_id: "reserved-words"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "TMP"

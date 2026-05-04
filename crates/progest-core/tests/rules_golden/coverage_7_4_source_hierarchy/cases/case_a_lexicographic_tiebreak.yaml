@@ -1,0 +1,7 @@
+name: "§7.4 — when specificity and source tie, lexicographic rule_id wins"
+path: "assets/forest_night.psd"
+expected:
+  # Both rules have same applies_to (./**) and same source (project_wide).
+  # alpha-template < beta-template lexicographically → alpha wins.
+  winner_rule_id: "alpha-template"
+  violations: []

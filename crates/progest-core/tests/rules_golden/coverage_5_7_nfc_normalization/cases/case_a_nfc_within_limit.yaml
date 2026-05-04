@@ -1,0 +1,5 @@
+name: "§5.7 — NFC-normalized grapheme count is within max_length"
+# がぎぐげご in NFC = 5 graphemes, plus .psd ext → stem is 5 ≤ 10
+path: "assets/がぎぐげご.psd"
+expected:
+  violations: []

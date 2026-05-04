@@ -1,0 +1,10 @@
+name: "§4.4 — numeric value exceeds :03d width is evaluation_error"
+path: "assets/sc9999_forest-night.tif"
+custom:
+  scene: 9999
+expected:
+  violations:
+    - rule_id: "scene-template"
+      kind: "template"
+      severity: "evaluation_error"
+      reason_contains: "does not fit"

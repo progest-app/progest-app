@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[rules]]
+id = "compound-template"
+kind = "template"
+applies_to = "./**"
+template = "{desc:snake}.{ext}"

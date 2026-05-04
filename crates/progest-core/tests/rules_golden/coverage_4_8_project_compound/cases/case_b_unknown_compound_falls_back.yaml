@@ -1,0 +1,8 @@
+name: "§4.8 — unknown compound ext without registration causes mismatch"
+path: "assets/forest_night.psd.bak"
+expected:
+  violations:
+    - rule_id: "compound-template"
+      kind: "template"
+      severity: "warn"
+      reason_contains: "does not satisfy template"

@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[rules]]
+id = "reserved-words"
+kind = "constraint"
+applies_to = "./**"
+reserved_words = ["tmp", "test", "backup"]

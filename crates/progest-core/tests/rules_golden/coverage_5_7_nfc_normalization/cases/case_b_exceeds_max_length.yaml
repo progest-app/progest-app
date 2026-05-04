@@ -1,0 +1,9 @@
+name: "§5.7 — stem exceeding max_length in NFC graphemes triggers violation"
+# 12345678901 = 11 graphemes > 10
+path: "assets/12345678901.psd"
+expected:
+  violations:
+    - rule_id: "length-cap"
+      kind: "constraint"
+      severity: "warn"
+      reason_contains: "graphemes"

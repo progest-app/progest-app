@@ -1,0 +1,4 @@
+name: "§5.6 — no reserved word in filename passes"
+path: "assets/scene_forest_export.psd"
+expected:
+  violations: []

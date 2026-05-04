@@ -44,6 +44,10 @@ struct CaseDocument {
     created_at: Option<String>,
     #[serde(default)]
     dirmeta_layers: Vec<DirmetaLayer>,
+    /// Extra compound extensions registered by the project (in addition
+    /// to `BUILTIN_COMPOUND_EXTS`).
+    #[serde(default)]
+    compound_exts: Vec<String>,
     expected: ExpectedOutcome,
 }
 
@@ -59,6 +63,11 @@ struct ExpectedOutcome {
     violations: Vec<ExpectedViolation>,
     #[serde(default)]
     winner_rule_id: Option<String>,
+    /// When set, the scenario's `rules.toml` + dirmeta layers are
+    /// expected to fail at `load_document` or `compile_ruleset` time
+    /// with a message containing this substring. No evaluation runs.
+    #[serde(default)]
+    compile_error_contains: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,14 +128,53 @@ fn run_all_golden_fixtures() {
 fn run_case(rules_toml: &Path, case_path: &Path) -> Result<(), String> {
     let rules_src = fs::read_to_string(rules_toml)
         .map_err(|e| format!("read {}: {e}", rules_toml.display()))?;
-    let project_doc =
-        load_document(&rules_src).map_err(|e| format!("load project rules.toml: {e}"))?;
 
     let case_src = fs::read_to_string(case_path).map_err(|e| format!("read case: {e}"))?;
     let case: CaseDocument =
         serde_yaml::from_str(&case_src).map_err(|e| format!("parse case YAML: {e}"))?;
 
-    // Layers: own dirmeta first (nearest wins per spec §7.1), project last.
+    // Try to load + compile. If the case expects a compile error, verify
+    // the error message and return early.
+    let ruleset = match try_build_ruleset(&rules_src, &case) {
+        Ok(rs) => rs,
+        Err(err_msg) => {
+            if let Some(needle) = &case.expected.compile_error_contains {
+                if err_msg.contains(needle) {
+                    return Ok(());
+                }
+                return Err(format!(
+                    "expected compile error containing `{needle}`, got: {err_msg}"
+                ));
+            }
+            return Err(err_msg);
+        }
+    };
+
+    if case.expected.compile_error_contains.is_some() {
+        return Err("expected a compile error but load+compile succeeded".into());
+    }
+
+    let path = ProjectPath::new(&case.path)
+        .map_err(|e| format!("invalid case path `{}`: {e}", case.path))?;
+    let meta = build_meta(&case).map_err(|e| format!("build meta: {e}"))?;
+
+    let mut exts: Vec<&str> = BUILTIN_COMPOUND_EXTS.to_vec();
+    for e in &case.compound_exts {
+        exts.push(e.as_str());
+    }
+
+    let outcome = evaluate(&path, meta.as_ref(), &ruleset, &exts);
+
+    compare_outcome(&outcome, &case.expected)
+}
+
+fn try_build_ruleset(
+    rules_src: &str,
+    case: &CaseDocument,
+) -> Result<progest_core::rules::CompiledRuleSet, String> {
+    let project_doc =
+        load_document(rules_src).map_err(|e| format!("load project rules.toml: {e}"))?;
+
     let mut layers = Vec::new();
     for dirmeta in &case.dirmeta_layers {
         let doc = load_document(&dirmeta.rules_toml)
@@ -144,15 +192,7 @@ fn run_case(rules_toml: &Path, case_path: &Path) -> Result<(), String> {
         rules: project_doc.rules,
     });
 
-    let ruleset = compile_ruleset(layers).map_err(|e| format!("compile_ruleset: {e}"))?;
-
-    let path = ProjectPath::new(&case.path)
-        .map_err(|e| format!("invalid case path `{}`: {e}", case.path))?;
-    let meta = build_meta(&case).map_err(|e| format!("build meta: {e}"))?;
-
-    let outcome = evaluate(&path, meta.as_ref(), &ruleset, BUILTIN_COMPOUND_EXTS);
-
-    compare_outcome(&outcome, &case.expected)
+    compile_ruleset(layers).map_err(|e| format!("compile_ruleset: {e}"))
 }
 
 // --- Helpers ---------------------------------------------------------------

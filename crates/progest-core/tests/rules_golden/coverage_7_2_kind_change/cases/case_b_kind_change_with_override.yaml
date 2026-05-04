@@ -1,0 +1,14 @@
+name: "§7.2 — kind change with override = true succeeds"
+path: "assets/shots/forest.psd"
+dirmeta_layers:
+  - base_dir: "assets/shots"
+    rules_toml: |
+      schema_version = 1
+      [[rules]]
+      id = "my-rule"
+      kind = "constraint"
+      applies_to = "./**"
+      override = true
+      charset = "ascii"
+expected:
+  violations: []

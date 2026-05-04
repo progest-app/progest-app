@@ -1,0 +1,9 @@
+name: "§4.4 — missing custom field is evaluation_error"
+path: "assets/sc020_forest-night.tif"
+custom: {}
+expected:
+  violations:
+    - rule_id: "scene-template"
+      kind: "template"
+      severity: "evaluation_error"
+      reason_contains: "custom.scene is missing"
