@@ -28,6 +28,14 @@ use crate::meta::MetaDocument;
 
 // --- Public types ----------------------------------------------------------
 
+/// Pre-compiled regex + capture keys for templates without dynamic atoms.
+#[derive(Debug, Clone)]
+struct StaticRegex {
+    regex: Regex,
+    capture_keys: Vec<String>,
+    has_ext: bool,
+}
+
 /// A fully compiled template ready for match / suggest work.
 #[derive(Debug, Clone)]
 pub struct CompiledTemplate {
@@ -35,6 +43,10 @@ pub struct CompiledTemplate {
     atoms: Vec<Atom>,
     /// Number of open-ended slots (§4.7). 0 or 1 by construction.
     open_ended_count: u8,
+    /// Cached regex for templates whose pattern is fully static (no
+    /// `{field:}` / `{date:}` atoms). `None` when the template contains
+    /// dynamic placeholders whose resolved value varies per file.
+    static_regex: Option<StaticRegex>,
 }
 
 impl CompiledTemplate {
@@ -326,10 +338,18 @@ pub fn compile(raw: &str) -> Result<CompiledTemplate, TemplateError> {
         }
     }
 
+    let has_dynamic = atoms.iter().any(|a| matches!(a, Atom::Dynamic(_)));
+    let static_regex = if has_dynamic {
+        None
+    } else {
+        Some(build_static_regex(&atoms))
+    };
+
     Ok(CompiledTemplate {
         raw: raw.to_owned(),
         atoms,
         open_ended_count,
+        static_regex,
     })
 }
 
@@ -795,6 +815,52 @@ pub struct TemplateMatch {
     pub failure_reason: Option<String>,
 }
 
+/// Build the compiled regex + capture keys for a template that contains only
+/// static atoms (no `{field:}` or `{date:}` placeholders).
+fn build_static_regex(atoms: &[Atom]) -> StaticRegex {
+    let ext_pos = atoms
+        .iter()
+        .position(|a| matches!(a, Atom::Static(s) if matches!(s.kind, StaticKind::Ext)));
+
+    let mut pattern = String::from("^");
+    let mut capture_keys: Vec<String> = Vec::new();
+
+    for (i, atom) in atoms.iter().enumerate() {
+        if Some(i) == ext_pos {
+            continue;
+        }
+        match atom {
+            Atom::Literal(s) => {
+                let effective = if ext_pos == Some(i + 1) {
+                    s.strip_suffix('.').unwrap_or(s)
+                } else {
+                    s.as_str()
+                };
+                pattern.push_str(&regex::escape(effective));
+            }
+            Atom::Static(s) => {
+                write!(
+                    pattern,
+                    "(?<{cap}>{frag})",
+                    cap = s.capture,
+                    frag = s.regex_fragment
+                )
+                .expect("writing to String never fails");
+                capture_keys.push(s.capture.clone());
+            }
+            Atom::Dynamic(_) => unreachable!("build_static_regex called with dynamic atoms"),
+        }
+    }
+    pattern.push('$');
+
+    let regex = Regex::new(&pattern).expect("static template pattern must compile");
+    StaticRegex {
+        regex,
+        capture_keys,
+        has_ext: ext_pos.is_some(),
+    }
+}
+
 /// Match a basename against a compiled template.
 ///
 /// `meta` is only needed when the template contains `{field:}` or
@@ -823,47 +889,34 @@ pub fn match_basename(
     compound_exts: &[&str],
 ) -> Result<TemplateMatch, EvaluationError> {
     let atoms = template.atoms();
+
+    // Fast path: use pre-compiled regex for templates without dynamic atoms.
+    if let Some(cached) = &template.static_regex {
+        return Ok(match_with_regex(
+            template,
+            basename,
+            atoms,
+            &cached.regex,
+            &cached.capture_keys,
+            cached.has_ext,
+            compound_exts,
+        ));
+    }
+
+    // Slow path: templates with dynamic atoms need per-call regex compilation.
     let ext_pos = atoms
         .iter()
         .position(|a| matches!(a, Atom::Static(s) if matches!(s.kind, StaticKind::Ext)));
-
-    // Spec §4.8: peel the longest known compound extension, then match
-    // the stem against the non-ext atoms. Without this pre-split, a
-    // regex `(?<desc>.+)\.(?<ext>[A-Za-z0-9.]+)` would let
-    // `archive.tar.gz` resolve to (desc="archive.tar", ext="gz") or
-    // even (desc="archive", ext="tar.gz") non-deterministically.
-    let (subject, captured_ext) = if ext_pos.is_some() {
-        let (stem, ext) = split_basename(basename, compound_exts);
-        let Some(ext) = ext else {
-            return Ok(TemplateMatch {
-                matched: false,
-                captures: BTreeMap::new(),
-                failure_reason: Some(format!(
-                    "basename `{basename}` has no extension, but template `{raw}` requires `{{ext}}`",
-                    raw = template.raw()
-                )),
-            });
-        };
-        (stem.to_owned(), Some(ext.to_owned()))
-    } else {
-        (basename.to_owned(), None)
-    };
 
     let mut pattern = String::from("^");
     let mut capture_keys: Vec<String> = Vec::new();
 
     for (i, atom) in atoms.iter().enumerate() {
         if Some(i) == ext_pos {
-            // `{ext}` is consumed by `split_basename` above — do not
-            // emit a regex fragment for it.
             continue;
         }
         match atom {
             Atom::Literal(s) => {
-                // The dot separator before `{ext}` is implicitly owned
-                // by the split — strip it from the literal so the stem
-                // regex does not demand a trailing dot that was already
-                // removed from the subject.
                 let effective = if ext_pos == Some(i + 1) {
                     s.strip_suffix('.').unwrap_or(s)
                 } else {
@@ -891,30 +944,74 @@ pub fn match_basename(
 
     let re = Regex::new(&pattern).map_err(|e| EvaluationError::Regex(e.to_string()))?;
 
+    Ok(match_with_regex(
+        template,
+        basename,
+        atoms,
+        &re,
+        &capture_keys,
+        ext_pos.is_some(),
+        compound_exts,
+    ))
+}
+
+/// Shared match logic: peel the extension if the template has `{ext}`, run
+/// the regex against the stem (or full basename), and collect captures.
+fn match_with_regex(
+    template: &CompiledTemplate,
+    basename: &str,
+    atoms: &[Atom],
+    re: &Regex,
+    capture_keys: &[String],
+    has_ext: bool,
+    compound_exts: &[&str],
+) -> TemplateMatch {
+    let (subject, captured_ext) = if has_ext {
+        let (stem, ext) = split_basename(basename, compound_exts);
+        let Some(ext) = ext else {
+            return TemplateMatch {
+                matched: false,
+                captures: BTreeMap::new(),
+                failure_reason: Some(format!(
+                    "basename `{basename}` has no extension, but template `{raw}` requires `{{ext}}`",
+                    raw = template.raw()
+                )),
+            };
+        };
+        (stem.to_owned(), Some(ext.to_owned()))
+    } else {
+        (basename.to_owned(), None)
+    };
+
     match re.captures(&subject) {
-        None => Ok(TemplateMatch {
+        None => TemplateMatch {
             matched: false,
             captures: BTreeMap::new(),
-            failure_reason: Some(describe_mismatch(template, basename, ext_pos.is_some())),
-        }),
+            failure_reason: Some(describe_mismatch(template, basename, has_ext)),
+        },
         Some(caps) => {
             let mut captures = BTreeMap::new();
             for key in capture_keys {
-                if let Some(m) = caps.name(&key) {
-                    captures.insert(key, m.as_str().to_owned());
+                if let Some(m) = caps.name(key) {
+                    captures.insert(key.clone(), m.as_str().to_owned());
                 }
             }
-            if let Some(pos) = ext_pos
-                && let Atom::Static(ext_atom) = &atoms[pos]
-                && let Some(ext) = captured_ext
-            {
-                captures.insert(ext_atom.capture.clone(), ext);
+            if has_ext {
+                let ext_pos = atoms.iter().position(
+                    |a| matches!(a, Atom::Static(s) if matches!(s.kind, StaticKind::Ext)),
+                );
+                if let Some(pos) = ext_pos
+                    && let Atom::Static(ext_atom) = &atoms[pos]
+                    && let Some(ext) = captured_ext
+                {
+                    captures.insert(ext_atom.capture.clone(), ext);
+                }
             }
-            Ok(TemplateMatch {
+            TemplateMatch {
                 matched: true,
                 captures,
                 failure_reason: None,
-            })
+            }
         }
     }
 }
