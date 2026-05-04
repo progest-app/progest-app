@@ -20,5 +20,7 @@ pub mod types;
 
 pub use apply::{Import, ImportApplyError, ImportOutcome, ImportWarning, ImportedFile};
 pub use preview::build_preview;
-pub use ranking::{SuggestedDestination, rank_destinations, score_dir};
+pub use ranking::{
+    SuggestedDestination, merge_rankings, rank_by_frequency, rank_destinations, score_dir,
+};
 pub use types::{ImportConflict, ImportMode, ImportOp, ImportPreview, ImportRequest};

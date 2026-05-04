@@ -13,7 +13,8 @@ use progest_core::accepts::{
 use progest_core::fs::ProjectPath;
 use progest_core::history::SqliteStore as HistoryStore;
 use progest_core::import::{
-    self, Import, ImportMode, ImportRequest, build_preview, rank_destinations,
+    self, Import, ImportMode, ImportRequest, build_preview, merge_rankings, rank_by_frequency,
+    rank_destinations,
 };
 use progest_core::index::Index;
 use progest_core::meta::{StdMetaStore, load_dirmeta};
@@ -145,10 +146,14 @@ pub async fn import_ranking(
         let dirs = collect_dirmeta_effective_accepts(ctx, &catalog);
 
         let ext = normalize_ext(&exts[0]);
-        let ranked = rank_destinations(&dirs, &ext);
+        let accepts_ranked = rank_destinations(&dirs, &ext);
+
+        let rows = ctx.index.list_files().unwrap_or_default();
+        let freq_ranked = rank_by_frequency(&rows, &ext);
+        let merged = merge_rankings(&accepts_ranked, &freq_ranked);
 
         Ok(ImportRankingResponse {
-            suggestions: ranked
+            suggestions: merged
                 .into_iter()
                 .map(|s| SuggestedDestinationWire {
                     path: s.path.as_str().to_owned(),
