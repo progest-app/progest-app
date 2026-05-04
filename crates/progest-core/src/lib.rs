@@ -19,6 +19,7 @@ pub mod identity;
 pub mod import;
 pub mod index;
 pub mod lint;
+pub mod media;
 pub mod meta;
 pub mod naming;
 pub mod project;

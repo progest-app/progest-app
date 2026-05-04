@@ -744,6 +744,29 @@ export async function rescanProject(
   }
 }
 
+// --- media info ------------------------------------------------------------
+
+export type MediaInfo = {
+  size_bytes: number;
+  width?: number;
+  height?: number;
+  duration_secs?: number;
+  codec?: string;
+  fps?: number;
+  audio_codec?: string;
+  sample_rate?: number;
+  channels?: number;
+  bit_depth?: number;
+};
+
+export async function fileMediaInfo(path: string): Promise<MediaInfo> {
+  try {
+    return await invoke<MediaInfo>("file_media_info", { path });
+  } catch (e) {
+    throw toIpcError(e);
+  }
+}
+
 // --- AI suggestions -------------------------------------------------------
 
 export type AiSuggestionWire = {
