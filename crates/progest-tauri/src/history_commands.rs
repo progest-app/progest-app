@@ -1,6 +1,7 @@
 //! IPC commands for history undo/redo.
 
 use progest_core::delete::apply_delete;
+use progest_core::fs::hidden;
 use progest_core::history::{Entry, Operation, Store as _};
 use progest_core::index::Index;
 use progest_core::meta::{MetaStore, StdMetaStore, sidecar_path};
@@ -292,4 +293,69 @@ fn summarize(op: &Operation) -> String {
             }
         }
     }
+}
+
+// ── Meta hidden config ────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MetaHiddenConfigWire {
+    pub hidden: bool,
+}
+
+#[tauri::command]
+pub async fn meta_get_hidden(app: AppHandle) -> Result<MetaHiddenConfigWire, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+        let text = std::fs::read_to_string(ctx.root.project_toml())
+            .map_err(|e| format!("reading project.toml: {e}"))?;
+        let doc = ProjectDocument::from_toml_str(&text)
+            .map_err(|e| format!("parsing project.toml: {e}"))?;
+        Ok(MetaHiddenConfigWire {
+            hidden: doc.meta.hidden,
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn meta_set_hidden(value: bool, app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let guard = state.project.lock().expect("project mutex poisoned");
+        let ctx = guard.as_ref().ok_or_else(no_project_error)?;
+
+        let toml_path = ctx.root.project_toml();
+        let text = std::fs::read_to_string(&toml_path)
+            .map_err(|e| format!("reading project.toml: {e}"))?;
+        let mut doc = ProjectDocument::from_toml_str(&text)
+            .map_err(|e| format!("parsing project.toml: {e}"))?;
+        doc.meta.hidden = value;
+        let rendered = doc
+            .to_toml_string()
+            .map_err(|e| format!("serializing project.toml: {e}"))?;
+        std::fs::write(&toml_path, rendered).map_err(|e| format!("writing project.toml: {e}"))?;
+
+        let rows = ctx
+            .index
+            .list_files()
+            .map_err(|e| format!("list files: {e}"))?;
+        for row in &rows {
+            if let Ok(sc) = sidecar_path(&row.path) {
+                let abs = ctx.root.root().join(sc.as_str());
+                if abs.exists() {
+                    if value {
+                        hidden::set_hidden(&abs);
+                    } else {
+                        hidden::set_visible(&abs);
+                    }
+                }
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
 }

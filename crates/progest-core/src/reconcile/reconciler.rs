@@ -11,7 +11,10 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::fs::{EntryKind, FileSystem, IgnoreRules, Metadata, ProjectPath, ScanEntry, Scanner};
+use crate::fs::{
+    EntryKind, FileSystem, IgnoreRules, Metadata, ProjectPath, ScanEntry, Scanner,
+    hidden::set_hidden,
+};
 use crate::identity::{FileId, Fingerprint, compute_fingerprint};
 use crate::index::{FileRow, Index, SearchProjection};
 use crate::meta::{Kind, MetaDocument, MetaStore, SIDECAR_SUFFIX, Status, sidecar_path};
@@ -28,6 +31,7 @@ pub struct Reconciler<'a> {
     fs: &'a dyn FileSystem,
     meta: &'a dyn MetaStore,
     index: &'a dyn Index,
+    hide_meta: bool,
 }
 
 impl<'a> Reconciler<'a> {
@@ -36,7 +40,24 @@ impl<'a> Reconciler<'a> {
     /// callers can reuse existing trait objects without cloning.
     #[must_use]
     pub fn new(fs: &'a dyn FileSystem, meta: &'a dyn MetaStore, index: &'a dyn Index) -> Self {
-        Self { fs, meta, index }
+        Self {
+            fs,
+            meta,
+            index,
+            hide_meta: true,
+        }
+    }
+
+    #[must_use]
+    pub fn with_hide_meta(mut self, hide: bool) -> Self {
+        self.hide_meta = hide;
+        self
+    }
+
+    fn hide_sidecar(&self, sidecar: &ProjectPath) {
+        if self.hide_meta {
+            set_hidden(&self.fs.root().join(sidecar.as_str()));
+        }
     }
 
     /// Walk the project from the root, reconciling every non-ignored file
@@ -253,12 +274,14 @@ impl<'a> Reconciler<'a> {
                 let mut updated = existing_doc.clone();
                 updated.content_fingerprint = fingerprint;
                 self.meta.save(&sidecar, &updated)?;
+                self.hide_sidecar(&sidecar);
             }
             existing_doc.file_id
         } else {
             let fresh = FileId::new_v7();
             let doc = MetaDocument::new(fresh, fingerprint);
             self.meta.save(&sidecar, &doc)?;
+            self.hide_sidecar(&sidecar);
             fresh
         };
 
@@ -354,18 +377,17 @@ impl<'a> Reconciler<'a> {
             // reconciles treat this file as anchored.
             let doc = MetaDocument::new(file_id, fingerprint);
             self.meta.save(&sidecar, &doc)?;
+            self.hide_sidecar(&sidecar);
             return Ok(());
         }
         let mut doc = self.meta.load(&sidecar)?;
         if doc.file_id != file_id {
-            // Sidecar drifted to a different identity — trust the index for
-            // now (it owns the live row) and correct the sidecar. A future
-            // PR can surface this as an IdentityConflict via doctor.
             doc.file_id = file_id;
         }
         if doc.content_fingerprint != fingerprint {
             doc.content_fingerprint = fingerprint;
             self.meta.save(&sidecar, &doc)?;
+            self.hide_sidecar(&sidecar);
         }
         Ok(())
     }

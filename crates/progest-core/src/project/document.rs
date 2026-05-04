@@ -79,6 +79,29 @@ const fn default_retention() -> usize {
     50
 }
 
+/// Per-project meta sidecar configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetaConfig {
+    #[serde(default = "default_true")]
+    pub hidden: bool,
+}
+
+impl Default for MetaConfig {
+    fn default() -> Self {
+        Self {
+            hidden: default_true(),
+        }
+    }
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+fn is_default_meta(m: &MetaConfig) -> bool {
+    m.hidden == default_true()
+}
+
 /// Parsed representation of `.progest/project.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectDocument {
@@ -94,6 +117,9 @@ pub struct ProjectDocument {
 
     #[serde(default, skip_serializing_if = "is_default_history")]
     pub history: HistoryConfig,
+
+    #[serde(default, skip_serializing_if = "is_default_meta")]
+    pub meta: MetaConfig,
 
     /// Unknown top-level keys preserved verbatim so that a newer Progest
     /// release can add fields without an older installation stripping them.
@@ -114,6 +140,7 @@ impl ProjectDocument {
             name,
             progest_version: crate::VERSION.to_string(),
             history: HistoryConfig::default(),
+            meta: MetaConfig::default(),
             extra: Table::new(),
         }
     }

@@ -55,7 +55,8 @@ pub async fn rescan_project(
             total: 0,
             message: "Scanning files\u{2026}".to_string(),
         });
-        let reconciler = Reconciler::new(&ctx.fs, &meta, &ctx.index);
+        let hide_meta = load_meta_hidden(ctx);
+        let reconciler = Reconciler::new(&ctx.fs, &meta, &ctx.index).with_hide_meta(hide_meta);
         let report = reconciler
             .full_scan_with_progress(&|current, total, msg| {
                 let _ = on_progress.send(ProgressEvent {
@@ -177,4 +178,14 @@ fn load_cleanup(ctx: &ProjectContext) -> Result<CleanupConfig, String> {
     let (cfg, _warns) =
         extract_cleanup_config(&doc.extra).map_err(|e| format!("read [cleanup]: {e}"))?;
     Ok(cfg)
+}
+
+fn load_meta_hidden(ctx: &ProjectContext) -> bool {
+    let Ok(text) = std::fs::read_to_string(ctx.root.project_toml()) else {
+        return true;
+    };
+    let Ok(doc) = ProjectDocument::from_toml_str(&text) else {
+        return true;
+    };
+    doc.meta.hidden
 }

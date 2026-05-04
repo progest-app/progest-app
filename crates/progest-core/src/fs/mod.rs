@@ -12,6 +12,7 @@
 
 pub mod fault;
 pub mod filesystem;
+pub mod hidden;
 pub mod ignore;
 pub mod mem;
 pub mod path;
