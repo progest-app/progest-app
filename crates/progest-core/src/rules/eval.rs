@@ -45,6 +45,16 @@ pub struct EvaluationOutcome {
     pub trace: Vec<RuleHit>,
 }
 
+/// Controls optional behaviour of [`evaluate`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EvaluationOptions {
+    /// When `true`, emit [`Decision::NotApplicable`] trace entries for
+    /// every rule whose `applies_to` did not match the file. Defaults
+    /// to `false` so the hot path stays cheap; CLI `lint --explain`
+    /// flips it on (§9.1).
+    pub include_not_applicable: bool,
+}
+
 /// Evaluate `path` (with optional `meta`) against `ruleset`.
 ///
 /// `compound_exts` is passed through to the constraint evaluator for
@@ -61,11 +71,32 @@ pub fn evaluate(
     ruleset: &CompiledRuleSet,
     compound_exts: &[&str],
 ) -> EvaluationOutcome {
+    evaluate_with_options(
+        path,
+        meta,
+        ruleset,
+        compound_exts,
+        &EvaluationOptions::default(),
+    )
+}
+
+/// Like [`evaluate`], but accepts [`EvaluationOptions`] to control
+/// optional behaviour such as `NotApplicable` trace emission.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn evaluate_with_options(
+    path: &ProjectPath,
+    meta: Option<&MetaDocument>,
+    ruleset: &CompiledRuleSet,
+    compound_exts: &[&str],
+    opts: &EvaluationOptions,
+) -> EvaluationOutcome {
     let basename = path.file_name().unwrap_or("");
     let file_id = meta.map(|m| m.file_id);
 
     // 1. Collect candidates + best specificity per rule.
     let mut candidates: Vec<Candidate> = Vec::new();
+    let mut not_applicable: Vec<usize> = Vec::new();
     for (idx, rule) in ruleset.rules.iter().enumerate() {
         if rule.mode == Mode::Off {
             continue;
@@ -76,6 +107,8 @@ pub fn evaluate(
                 kind: rule.kind(),
                 specificity: best.specificity(),
             });
+        } else if opts.include_not_applicable {
+            not_applicable.push(idx);
         }
     }
 
@@ -171,6 +204,19 @@ pub fn evaluate(
                 });
             }
         }
+    }
+
+    // 4. NotApplicable entries for rules that didn't match (§9.2).
+    for idx in not_applicable {
+        let rule = &ruleset.rules[idx];
+        trace.push(RuleHit {
+            rule_id: rule.id.clone(),
+            kind: rule.kind(),
+            source: rule.provenance.source,
+            decision: Decision::NotApplicable,
+            specificity_score: SpecificityScore::zero(),
+            explanation: "applies_to did not match this file".to_owned(),
+        });
     }
 
     // Attach the full trace only to violations (§9.3 default view).
@@ -588,5 +634,105 @@ template = "{prefix}_{seq:03d}_{desc:snake}.{ext}"
         // Both normalize to the same glob `assets/shots/**/*.psd`, so
         // specificity ties and the Own layer should take it.
         assert_eq!(winner.rule_id.as_str(), "own-shot");
+    }
+
+    // --- NotApplicable trace ------------------------------------------------
+
+    #[test]
+    fn not_applicable_hidden_by_default() {
+        let rs = ruleset(
+            r#"
+schema_version = 1
+
+[[rules]]
+id = "shots-only"
+kind = "template"
+applies_to = "./assets/shots/**/*.psd"
+template = "{prefix}_{seq:03d}.{ext}"
+"#,
+        );
+        let out = evaluate(&path("docs/readme.md"), None, &rs, &[]);
+        assert!(out.trace.is_empty());
+    }
+
+    #[test]
+    fn not_applicable_emitted_when_enabled() {
+        let rs = ruleset(
+            r#"
+schema_version = 1
+
+[[rules]]
+id = "shots-only"
+kind = "template"
+applies_to = "./assets/shots/**/*.psd"
+template = "{prefix}_{seq:03d}.{ext}"
+"#,
+        );
+        let opts = EvaluationOptions {
+            include_not_applicable: true,
+        };
+        let out = evaluate_with_options(&path("docs/readme.md"), None, &rs, &[], &opts);
+        assert_eq!(out.trace.len(), 1);
+        assert!(matches!(out.trace[0].decision, Decision::NotApplicable));
+        assert_eq!(out.trace[0].rule_id.as_str(), "shots-only");
+    }
+
+    #[test]
+    fn not_applicable_coexists_with_winner_and_shadowed() {
+        let rs = ruleset(
+            r#"
+schema_version = 1
+
+[[rules]]
+id = "general"
+kind = "template"
+applies_to = "./assets/**"
+template = "{desc:snake}_v{version:02d}.{ext}"
+
+[[rules]]
+id = "shots-specific"
+kind = "template"
+applies_to = "./assets/shots/**/*.psd"
+template = "{prefix}_{seq:03d}_{desc:snake}_v{version:02d}.{ext}"
+
+[[rules]]
+id = "docs-only"
+kind = "constraint"
+applies_to = "./docs/**"
+charset = "ascii"
+"#,
+        );
+        let opts = EvaluationOptions {
+            include_not_applicable: true,
+        };
+        let out = evaluate_with_options(
+            &path("assets/shots/ch010/ch010_001_bg_v03.psd"),
+            None,
+            &rs,
+            &[],
+            &opts,
+        );
+
+        let decisions: Vec<_> = out
+            .trace
+            .iter()
+            .map(|h| (h.rule_id.as_str(), &h.decision))
+            .collect();
+
+        assert!(
+            decisions
+                .iter()
+                .any(|(id, d)| *id == "shots-specific" && matches!(d, Decision::Winner))
+        );
+        assert!(
+            decisions
+                .iter()
+                .any(|(id, d)| *id == "general" && matches!(d, Decision::Shadowed))
+        );
+        assert!(
+            decisions
+                .iter()
+                .any(|(id, d)| *id == "docs-only" && matches!(d, Decision::NotApplicable))
+        );
     }
 }

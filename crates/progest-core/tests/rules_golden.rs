@@ -27,8 +27,8 @@ use progest_core::fs::ProjectPath;
 use progest_core::identity::FileId;
 use progest_core::meta::MetaDocument;
 use progest_core::rules::{
-    BUILTIN_COMPOUND_EXTS, Decision, RuleKind, RuleSetLayer, RuleSource, Severity, compile_ruleset,
-    evaluate, load_document,
+    BUILTIN_COMPOUND_EXTS, Decision, EvaluationOptions, RuleKind, RuleSetLayer, RuleSource,
+    Severity, compile_ruleset, evaluate_with_options, load_document,
 };
 
 // --- Fixture types ---------------------------------------------------------
@@ -59,6 +59,8 @@ struct ExpectedOutcome {
     violations: Vec<ExpectedViolation>,
     #[serde(default)]
     winner_rule_id: Option<String>,
+    #[serde(default)]
+    trace: Vec<ExpectedTraceEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +70,15 @@ struct ExpectedViolation {
     severity: String, // "strict" | "warn" | "hint" | "evaluation_error"
     #[serde(default)]
     reason_contains: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExpectedTraceEntry {
+    rule_id: String,
+    kind: String,     // "template" | "constraint"
+    decision: String, // "winner" | "shadowed" | "not_applicable"
+    #[serde(default)]
+    source: Option<String>, // "own" | "inherited" | "project_wide"
 }
 
 // --- Test entry point ------------------------------------------------------
@@ -150,7 +161,11 @@ fn run_case(rules_toml: &Path, case_path: &Path) -> Result<(), String> {
         .map_err(|e| format!("invalid case path `{}`: {e}", case.path))?;
     let meta = build_meta(&case).map_err(|e| format!("build meta: {e}"))?;
 
-    let outcome = evaluate(&path, meta.as_ref(), &ruleset, BUILTIN_COMPOUND_EXTS);
+    let opts = EvaluationOptions {
+        include_not_applicable: !case.expected.trace.is_empty(),
+    };
+    let outcome =
+        evaluate_with_options(&path, meta.as_ref(), &ruleset, BUILTIN_COMPOUND_EXTS, &opts);
 
     compare_outcome(&outcome, &case.expected)
 }
@@ -214,6 +229,7 @@ fn yaml_to_toml(value: serde_yaml::Value) -> Result<toml::Value, String> {
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn compare_outcome(
     outcome: &progest_core::rules::EvaluationOutcome,
     expected: &ExpectedOutcome,
@@ -296,6 +312,67 @@ fn compare_outcome(
         }
     }
 
+    // Optional trace verification (order-insensitive).
+    if !expected.trace.is_empty() {
+        let mut remaining: Vec<usize> = (0..outcome.trace.len()).collect();
+        for exp in &expected.trace {
+            let pos = remaining
+                .iter()
+                .position(|&i| {
+                    let h = &outcome.trace[i];
+                    h.rule_id.as_str() == exp.rule_id
+                        && kind_str(h.kind) == exp.kind
+                        && decision_str(h.decision) == exp.decision
+                        && exp
+                            .source
+                            .as_deref()
+                            .is_none_or(|s| source_str(h.source) == s)
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "no trace entry matches rule_id={} kind={} decision={} source={:?}; actual = [{}]",
+                        exp.rule_id,
+                        exp.kind,
+                        exp.decision,
+                        exp.source,
+                        outcome
+                            .trace
+                            .iter()
+                            .map(|h| format!(
+                                "{}:{}:{}:{}",
+                                h.rule_id,
+                                kind_str(h.kind),
+                                decision_str(h.decision),
+                                source_str(h.source),
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })?;
+            remaining.remove(pos);
+        }
+
+        if !remaining.is_empty() {
+            let extra: Vec<_> = remaining
+                .iter()
+                .map(|&i| {
+                    let h = &outcome.trace[i];
+                    format!(
+                        "{}:{}:{}",
+                        h.rule_id,
+                        kind_str(h.kind),
+                        decision_str(h.decision)
+                    )
+                })
+                .collect();
+            return Err(format!(
+                "trace has {} unexpected entries: [{}]",
+                extra.len(),
+                extra.join(", ")
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -312,6 +389,22 @@ fn severity_str(s: Severity) -> &'static str {
         Severity::Warn => "warn",
         Severity::Hint => "hint",
         Severity::EvaluationError => "evaluation_error",
+    }
+}
+
+fn decision_str(d: Decision) -> &'static str {
+    match d {
+        Decision::Winner => "winner",
+        Decision::Shadowed => "shadowed",
+        Decision::NotApplicable => "not_applicable",
+    }
+}
+
+fn source_str(s: RuleSource) -> &'static str {
+    match s {
+        RuleSource::Own => "own",
+        RuleSource::Inherited { .. } => "inherited",
+        RuleSource::ProjectWide => "project_wide",
     }
 }
 

@@ -15,7 +15,8 @@ use crate::identity::FileId;
 use crate::meta::{DIRMETA_FILENAME, MetaDocument, MetaStore, MetaStoreError, sidecar_path};
 use crate::naming::{CleanupConfig, fill_suggested_names};
 use crate::rules::{
-    Category, CompiledRuleSet, Decision, RuleId, RuleKind, Severity, Violation, evaluate,
+    Category, CompiledRuleSet, Decision, EvaluationOptions, RuleId, RuleKind, Severity, Violation,
+    evaluate_with_options,
 };
 use crate::sequence::{DriftReason, DriftViolation, detect_drift, detect_sequences};
 
@@ -113,7 +114,16 @@ pub fn lint_paths_with_progress<F: FileSystem, M: MetaStore>(
             &mut effective_cache,
         )?;
 
-        let outcome = evaluate(p, meta.as_ref(), opts.ruleset, opts.compound_exts);
+        let eval_opts = EvaluationOptions {
+            include_not_applicable: opts.explain,
+        };
+        let outcome = evaluate_with_options(
+            p,
+            meta.as_ref(),
+            opts.ruleset,
+            opts.compound_exts,
+            &eval_opts,
+        );
         let mut naming_hits = outcome.violations;
         if !opts.explain {
             // DSL §9.3: without --explain, keep only the Winner trace
